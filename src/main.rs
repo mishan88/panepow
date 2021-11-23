@@ -178,21 +178,40 @@ pub fn setup_cursor(mut commands: Commands, materials: Res<CursorMaterials>) {
         .insert(Cursor);
 }
 
-pub fn move_cursor(keyboard_input: Res<Input<KeyCode>>, mut cursor: Query<(&Cursor, &mut Transform)>) {
+pub fn move_cursor(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut cursor: Query<(&Cursor, &mut Transform)>,
+) {
     if let Ok((_, mut transform)) = cursor.single_mut() {
         if keyboard_input.just_pressed(KeyCode::Left) {
-            transform.translation.x -= BLOCK_SIZE;
+            if transform.translation.x > -75.0 {
+                transform.translation.x -= BLOCK_SIZE;
+            }
         }
         if keyboard_input.just_pressed(KeyCode::Right) {
-            transform.translation.x += BLOCK_SIZE;
+            if transform.translation.x < 75.0 {
+                transform.translation.x += BLOCK_SIZE;
+            }
         }
         if keyboard_input.just_pressed(KeyCode::Up) {
-            transform.translation.y += BLOCK_SIZE;
+            if transform.translation.y < 300.0 {
+                transform.translation.y += BLOCK_SIZE;
+            }
         }
         if keyboard_input.just_pressed(KeyCode::Down) {
-            transform.translation.y -= BLOCK_SIZE;
+            if transform.translation.y > -300.0 {
+                transform.translation.y -= BLOCK_SIZE;
+            }
         }
     }
+}
+
+fn swap_block(
+    keyboard_input: Res<Input<KeyCode>>,
+    cursor: Query<&Cursor>,
+    mut block: Query<&mut Block>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Space) {}
 }
 
 fn main() {
