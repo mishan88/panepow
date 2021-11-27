@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_easings::*;
 
 const BOARD_WIDTH: usize = 6;
 const BOARD_HEIGHT: usize = 13;
@@ -14,16 +15,15 @@ enum BlockColor {
     Indigo,
 }
 
-enum BlockStatus {
-    Fixed,
-    Matched,
-    Despawning,
-}
+struct Block;
 
-struct Block {
-    color: BlockColor,
-    status: BlockStatus,
-}
+#[derive(Debug)]
+struct Move(f32, f32);
+
+struct Fixed;
+struct Moving;
+struct Matched;
+struct Despawining;
 
 struct BlockMaterials {
     red_material: Handle<ColorMaterial>,
@@ -60,7 +60,7 @@ fn setup_assets(mut commands: Commands, mut materials: ResMut<Assets<ColorMateri
         indigo_material: materials.add(Color::INDIGO.into()),
     });
     commands.insert_resource(BoardMaterials {
-        board_material: materials.add(Color::WHITE.into()),
+        board_material: materials.add(Color::rgba(1.0, 1.0, 1.0, 0.0).into()),
     });
     commands.insert_resource(CursorMaterials {
         cursor_material: materials.add(Color::rgba(0.0, 0.0, 0.0, 0.7).into()),
@@ -101,10 +101,9 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
                 },
                 ..Default::default()
             })
-            .insert(Block {
-                color: BlockColor::Red,
-                status: BlockStatus::Fixed,
-            });
+            .insert(Block)
+            .insert(BlockColor::Red)
+            .insert(Fixed);
         commands
             .spawn_bundle(SpriteBundle {
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
@@ -115,10 +114,9 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
                 },
                 ..Default::default()
             })
-            .insert(Block {
-                color: BlockColor::Red,
-                status: BlockStatus::Fixed,
-            });
+            .insert(Block)
+            .insert(BlockColor::Red)
+            .insert(Fixed);
         commands
             .spawn_bundle(SpriteBundle {
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
@@ -129,10 +127,9 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
                 },
                 ..Default::default()
             })
-            .insert(Block {
-                color: BlockColor::Blue,
-                status: BlockStatus::Fixed,
-            });
+            .insert(Block)
+            .insert(BlockColor::Red)
+            .insert(Fixed);
         commands
             .spawn_bundle(SpriteBundle {
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
@@ -143,10 +140,9 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
                 },
                 ..Default::default()
             })
-            .insert(Block {
-                color: BlockColor::Red,
-                status: BlockStatus::Fixed,
-            });
+            .insert(Block)
+            .insert(BlockColor::Blue)
+            .insert(Fixed);
         commands
             .spawn_bundle(SpriteBundle {
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
@@ -157,10 +153,9 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
                 },
                 ..Default::default()
             })
-            .insert(Block {
-                color: BlockColor::Red,
-                status: BlockStatus::Fixed,
-            });
+            .insert(Block)
+            .insert(BlockColor::Red)
+            .insert(Fixed);
     }
 }
 
@@ -180,38 +175,93 @@ pub fn setup_cursor(mut commands: Commands, materials: Res<CursorMaterials>) {
 
 pub fn move_cursor(
     keyboard_input: Res<Input<KeyCode>>,
-    mut cursor: Query<(&Cursor, &mut Transform)>,
+    mut cursor: Query<&mut Transform, With<Cursor>>,
 ) {
-    if let Ok((_, mut transform)) = cursor.single_mut() {
-        if keyboard_input.just_pressed(KeyCode::Left) {
-            if transform.translation.x > -75.0 {
-                transform.translation.x -= BLOCK_SIZE;
-            }
+    if let Ok(mut transform) = cursor.single_mut() {
+        if keyboard_input.just_pressed(KeyCode::Left) && transform.translation.x > -75.0 {
+            transform.translation.x -= BLOCK_SIZE;
         }
-        if keyboard_input.just_pressed(KeyCode::Right) {
-            if transform.translation.x < 75.0 {
-                transform.translation.x += BLOCK_SIZE;
-            }
+        if keyboard_input.just_pressed(KeyCode::Right) && transform.translation.x < 75.0 {
+            transform.translation.x += BLOCK_SIZE;
         }
-        if keyboard_input.just_pressed(KeyCode::Up) {
-            if transform.translation.y < 300.0 {
-                transform.translation.y += BLOCK_SIZE;
-            }
+        if keyboard_input.just_pressed(KeyCode::Up) && transform.translation.y < 300.0 {
+            transform.translation.y += BLOCK_SIZE;
         }
-        if keyboard_input.just_pressed(KeyCode::Down) {
-            if transform.translation.y > -300.0 {
-                transform.translation.y -= BLOCK_SIZE;
-            }
+        if keyboard_input.just_pressed(KeyCode::Down) && transform.translation.y > -300.0 {
+            transform.translation.y -= BLOCK_SIZE;
         }
     }
 }
 
-fn swap_block(
+fn tag_block(
     keyboard_input: Res<Input<KeyCode>>,
-    cursor: Query<&Cursor>,
-    mut block: Query<&mut Block>,
+    mut commands: Commands,
+    cursor: Query<&Transform, With<Cursor>>,
+    mut block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::Space) {}
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        if let Ok(cursor_transform) = cursor.single() {
+            let x = cursor_transform.translation.x;
+            let left_x = x - BLOCK_SIZE / 2.0;
+            let right_x = x + BLOCK_SIZE / 2.0;
+            println!(
+                "cursor: {}, {}, {}",
+                left_x, right_x, cursor_transform.translation.y
+            );
+            for (block_entity, block_transform) in block.iter_mut() {
+                if (block_transform.translation.y - cursor_transform.translation.y).abs()
+                    < f32::EPSILON
+                {
+                    // left -> right
+                    if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
+                        println!("left block: {}, {}", left_x, cursor_transform.translation.y);
+                        println!("left block: {:?}", block_entity.id());
+                        commands
+                            .entity(block_entity)
+                            .remove::<Fixed>()
+                            .insert(Move(right_x, cursor_transform.translation.y));
+                    }
+                    // right -> left
+                    if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
+                        println!(
+                            "right block: {}, {}",
+                            right_x, cursor_transform.translation.y
+                        );
+                        println!("right block: {:?}", block_entity.id());
+                        commands
+                            .entity(block_entity)
+                            .remove::<Fixed>()
+                            .insert(Move(left_x, cursor_transform.translation.y));
+                    }
+                }
+            }
+        }
+    }
+    if keyboard_input.just_pressed(KeyCode::A) {
+        for (block_entity, transform) in block.iter() {
+            println!("{}: {}", block_entity.id(), transform.translation);
+        }
+    }
+}
+
+fn move_block(
+    mut commands: Commands,
+    mut block_query: Query<(Entity, &Transform, &Move), (With<Block>, With<Move>)>,
+) {
+    for (entity, transform, target) in block_query.iter_mut() {
+        println!("{}, {}, {:?}", entity.id(), transform.translation, target);
+        commands
+            .entity(entity)
+            .insert(transform.ease_to(
+                Transform::from_translation(Vec3::new(target.0, target.1, 0.0)),
+                bevy_easings::EaseMethod::Linear,
+                bevy_easings::EasingType::Once {
+                    duration: std::time::Duration::from_millis(150),
+                },
+            ))
+            .remove::<Move>()
+            .insert(Fixed);
+    }
 }
 
 fn main() {
@@ -222,11 +272,14 @@ fn main() {
             height: 1080.0,
             ..Default::default()
         })
+        .add_plugins(DefaultPlugins)
+        .add_plugin(bevy_easings::EasingsPlugin)
         .add_startup_system(setup_assets.system())
         .add_startup_stage("setup_board", SystemStage::single(setup_board.system()))
         .add_startup_stage("setup_block", SystemStage::single(setup_block.system()))
         .add_startup_stage("setup_cursor", SystemStage::single(setup_cursor.system()))
         .add_system(move_cursor.system())
-        .add_plugins(DefaultPlugins)
+        .add_system(tag_block.system().label("tag"))
+        .add_system(move_block.system().after("tag"))
         .run();
 }
