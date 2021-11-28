@@ -58,10 +58,7 @@ struct CursorMaterials {
 
 struct Cursor;
 
-struct Board {
-    relative_x: f32,
-    relative_y: f32,
-}
+struct Board;
 
 fn setup_assets(mut commands: Commands, mut materials: ResMut<Assets<ColorMaterial>>) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
@@ -95,17 +92,21 @@ fn setup_board(mut commands: Commands, board_materials: Res<BoardMaterials>) {
             },
             ..Default::default()
         })
-        .insert(Board {
-            relative_x: -125.0,
-            relative_y: -300.0,
-        });
+        .insert(Board);
 }
 
-fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, query: Query<&Board>) {
-    if let Ok(board) = query.single() {
-        let relative_x = board.relative_x;
-        let relative_y = board.relative_y;
-        commands
+// TODO: generate from some block patterns.
+fn setup_block(
+    mut commands: Commands,
+    block_materials: Res<BlockMaterials>,
+    board: Query<(Entity, &Transform, &Sprite), With<Board>>,
+) {
+    for (board_entity, board_transform, sprite) in board.iter() {
+        let relative_x = board_transform.translation.x - sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
+        let relative_y = board_transform.translation.y - sprite.size.y / 2.0 + BLOCK_SIZE / 2.0;
+        println!("{}", sprite.size);
+
+        let block = commands
             .spawn_bundle(SpriteBundle {
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 material: block_materials.red_material.clone(),
@@ -117,8 +118,11 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
             })
             .insert(Block)
             .insert(BlockColor::Red)
-            .insert(Fixed);
-        commands
+            .insert(Fixed)
+            .id();
+        commands.entity(board_entity).push_children(&[block]);
+
+        let block = commands
             .spawn_bundle(SpriteBundle {
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 material: block_materials.red_material.clone(),
@@ -130,8 +134,11 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
             })
             .insert(Block)
             .insert(BlockColor::Red)
-            .insert(Fixed);
-        commands
+            .insert(Fixed)
+            .id();
+        commands.entity(board_entity).push_children(&[block]);
+
+        let block = commands
             .spawn_bundle(SpriteBundle {
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 material: block_materials.blue_material.clone(),
@@ -143,8 +150,10 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
             })
             .insert(Block)
             .insert(BlockColor::Red)
-            .insert(Fixed);
-        commands
+            .insert(Fixed)
+            .id();
+        commands.entity(board_entity).push_children(&[block]);
+        let block = commands
             .spawn_bundle(SpriteBundle {
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 material: block_materials.red_material.clone(),
@@ -156,8 +165,11 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
             })
             .insert(Block)
             .insert(BlockColor::Blue)
-            .insert(Fixed);
-        commands
+            .insert(Fixed)
+            .id();
+        commands.entity(board_entity).push_children(&[block]);
+
+        let block = commands
             .spawn_bundle(SpriteBundle {
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 material: block_materials.red_material.clone(),
@@ -169,11 +181,17 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
             })
             .insert(Block)
             .insert(BlockColor::Red)
-            .insert(Fixed);
+            .insert(Fixed)
+            .id();
+        commands.entity(board_entity).push_children(&[block]);
     }
 }
 
-fn setup_cursor(mut commands: Commands, materials: Res<CursorMaterials>, board: Query<Entity, With<Board>>) {
+fn setup_cursor(
+    mut commands: Commands,
+    materials: Res<CursorMaterials>,
+    board: Query<Entity, With<Board>>,
+) {
     for board_entity in board.iter() {
         let cursor = commands
             .spawn_bundle(SpriteBundle {
@@ -185,7 +203,8 @@ fn setup_cursor(mut commands: Commands, materials: Res<CursorMaterials>, board: 
                 },
                 ..Default::default()
             })
-            .insert(Cursor).id();
+            .insert(Cursor)
+            .id();
         commands.entity(board_entity).push_children(&[cursor]);
     }
 }
