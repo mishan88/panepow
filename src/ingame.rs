@@ -648,14 +648,6 @@ fn test_tag_block() {
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(tag_block.system());
 
-    world.insert_resource(BlockMaterials {
-        red_material: Handle::<ColorMaterial>::default(),
-        green_material: Handle::<ColorMaterial>::default(),
-        blue_material: Handle::<ColorMaterial>::default(),
-        yellow_material: Handle::<ColorMaterial>::default(),
-        purple_material: Handle::<ColorMaterial>::default(),
-        indigo_material: Handle::<ColorMaterial>::default(),
-    });
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite::new(Vec2::new(
             BOARD_WIDTH as f32 * BLOCK_SIZE,
@@ -712,4 +704,43 @@ fn test_tag_block() {
     world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 2);
+}
+
+#[test]
+fn test_move_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(move_block.system());
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Red)
+        .insert(Move(-1.0 * BLOCK_SIZE / 2.0, 0.0));
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Blue)
+        .insert(Move(BLOCK_SIZE / 2.0, 0.0));
+
+    assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 2);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 0);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
 }
