@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_easings::*;
+use std::collections::HashSet;
 
 pub struct IngamePlugin;
 
@@ -11,7 +12,8 @@ impl Plugin for IngamePlugin {
             .add_startup_stage("setup_cursor", SystemStage::single(setup_cursor.system()))
             .add_system(move_cursor.system())
             .add_system(tag_block.system().label("tag"))
-            .add_system(move_block.system().after("tag"));
+            .add_system(move_block.system().after("tag"))
+            .add_system(match_block.system());
     }
 }
 
@@ -19,7 +21,7 @@ const BOARD_WIDTH: usize = 6;
 const BOARD_HEIGHT: usize = 13;
 const BLOCK_SIZE: f32 = 50.0;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum BlockColor {
     Red,
     Green,
@@ -151,7 +153,7 @@ fn setup_block(
                 ..Default::default()
             })
             .insert(Block)
-            .insert(BlockColor::Red)
+            .insert(BlockColor::Blue)
             .insert(Fixed)
             .id();
         commands.entity(board_entity).push_children(&[block]);
@@ -166,7 +168,7 @@ fn setup_block(
                 ..Default::default()
             })
             .insert(Block)
-            .insert(BlockColor::Blue)
+            .insert(BlockColor::Red)
             .insert(Fixed)
             .id();
         commands.entity(board_entity).push_children(&[block]);
@@ -300,6 +302,111 @@ fn move_block(
             .remove::<Move>()
             .insert(Fixed);
     }
+}
+
+fn match_block(
+    mut commands: Commands,
+    mut block: Query<
+        (Entity, &Transform, &BlockColor),
+        (With<Block>, With<Fixed>, With<BlockColor>),
+    >,
+) {
+    let mut table: Vec<Vec<(Option<BlockColor>, Option<Entity>)>> =
+        vec![vec![(None, None); BOARD_WIDTH]; BOARD_HEIGHT];
+    let mut matched_entity_id: HashSet<u32> = HashSet::new();
+    // create match table
+    for (entity, transform, block_color) in block.iter_mut() {
+        let column_index = ((transform.translation.x + 125.0) / BLOCK_SIZE).floor() as usize;
+        let row_index = ((transform.translation.y + 300.0) / BLOCK_SIZE).floor() as usize;
+        match table.get_mut(row_index) {
+            Some(column_vec) => {
+                let _ = std::mem::replace(
+                    &mut column_vec[column_index],
+                    (Some(*block_color), Some(entity)),
+                );
+            }
+            None => {}
+        }
+    }
+    // x-axis matches
+    for row in table.iter() {
+        let mut row_matched_entity_id: HashSet<u32> = HashSet::new();
+        let mut matched_color: Option<BlockColor> = None;
+
+        for (row_block_color, row_block_entity) in row.iter() {
+            match row_block_color {
+                None => {
+                    // end matches
+                    if row_matched_entity_id.len() >= 3 {
+                        matched_entity_id.union(&row_matched_entity_id);
+                    }
+                    row_matched_entity_id.clear();
+                    matched_color = None;
+                }
+                Some(colored_block) => {
+                    // check is same color
+                    if matched_color == Some(*colored_block) {
+                        if let Some(en) = row_block_entity {
+                            row_matched_entity_id.insert(en.id());
+                        }
+                    } else {
+                        // end matches
+                        if row_matched_entity_id.len() >= 3 {
+                            matched_entity_id = matched_entity_id.union(&row_matched_entity_id).collect();
+                        }
+                        row_matched_entity_id.clear();
+                        matched_color = Some(*colored_block);
+                    }
+                }
+            }
+        }
+        if row_matched_entity_id.len() >= 3 {
+            matched_entity_id.union(&row_matched_entity_id);
+        }
+    }
+
+    // y-axis matches
+    for column_idx in 0..BOARD_WIDTH {
+        let mut column_matched_entity = HashSet::new();
+        let mut matched_color = None;
+        for row_idx in 0..BOARD_HEIGHT {
+            match table[row_idx][column_idx].0 {
+                None => {
+                    // end matches
+                    if column_matched_entity.len() >= 3 {
+                        matched_entity_id.union(&column_matched_entity);
+                    }
+                    column_matched_entity.clear();
+                    matched_color = None;
+                }
+                Some(colored_block) => {
+                    if matched_color == Some(colored_block) {
+                        if let Some(en) = table[row_idx][column_idx].1 {
+                            column_matched_entity.insert(en.id());
+                        }
+                    } else {
+                        // end matches
+                        if column_matched_entity.len() >= 3 {
+                            matched_entity_id.union(&column_matched_entity);
+                        }
+                        column_matched_entity.clear();
+                        matched_color = Some(colored_block);
+                    }
+                }
+            }
+        }
+    }
+
+    // match_entry
+    dbg!(&matched_entity_id);
+    if matched_entity_id.len() >= 3 {
+        println!("matched!");
+        for en in matched_entity_id {
+            commands.entity(en).insert(Matched).remove::<Fixed>();
+        }
+    }
+
+    // TODO: match number
 }
 
 #[test]
