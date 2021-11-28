@@ -59,6 +59,7 @@ struct CursorMaterials {
 #[derive(Debug)]
 struct Cursor;
 
+#[derive(Debug)]
 struct Board;
 
 fn setup_assets(mut commands: Commands, mut materials: ResMut<Assets<ColorMaterial>>) {
@@ -105,7 +106,6 @@ fn setup_block(
     for (board_entity, board_transform, sprite) in board.iter() {
         let relative_x = board_transform.translation.x - sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
         let relative_y = board_transform.translation.y - sprite.size.y / 2.0 + BLOCK_SIZE / 2.0;
-        println!("{}", sprite.size);
 
         let block = commands
             .spawn_bundle(SpriteBundle {
@@ -307,8 +307,9 @@ fn test_setup_board() {
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(setup_board.system());
 
-    let board_material = Handle::<ColorMaterial>::default();
-    world.insert_resource(BoardMaterials { board_material });
+    world.insert_resource(BoardMaterials {
+        board_material: Handle::<ColorMaterial>::default(),
+    });
     update_stage.run(&mut world);
     assert!(world.is_resource_added::<BoardMaterials>());
     assert_eq!(world.query::<&Board>().iter(&world).len(), 1);
@@ -320,13 +321,37 @@ fn test_setup_cursor() {
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(setup_cursor.system());
 
-    let cursor_material = Handle::<ColorMaterial>::default();
-    world.insert_resource(CursorMaterials { cursor_material });
+    world.insert_resource(CursorMaterials {
+        cursor_material: Handle::<ColorMaterial>::default(),
+    });
     world.spawn().insert(Board);
     update_stage.run(&mut world);
     assert!(world.is_resource_added::<CursorMaterials>());
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
 }
+
+// TODO: can multiple setup?
+// #[ignore]
+// #[test]
+// fn test_setup_cursor_with_setup() {
+//     let mut world = World::default();
+//     let mut update_stage = SystemStage::parallel();
+//     update_stage.add_system(setup_board.system().label("setup_board"));
+//     update_stage.add_system(setup_cursor.system().after("setup_board"));
+
+//     world.insert_resource(CursorMaterials {
+//         cursor_material: Handle::<ColorMaterial>::default(),
+//     });
+//     world.insert_resource(BoardMaterials {
+//         board_material: Handle::<ColorMaterial>::default(),
+//     });
+
+//     update_stage.run(&mut world);
+//     assert_eq!(world.query::<&Board>().iter(&world).len(), 1);
+//     assert!(world.is_resource_added::<CursorMaterials>());
+//     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
+
+// }
 
 #[test]
 fn test_left_move_cursor() {
@@ -335,8 +360,9 @@ fn test_left_move_cursor() {
     update_stage.add_system(setup_cursor.system().label("setup_cursor"));
     update_stage.add_system(move_cursor.system().after("setup_cursor"));
 
-    let cursor_material = Handle::<ColorMaterial>::default();
-    world.insert_resource(CursorMaterials { cursor_material });
+    world.insert_resource(CursorMaterials {
+        cursor_material: Handle::<ColorMaterial>::default(),
+    });
     world.spawn().insert(Board);
 
     let mut input = Input::<KeyCode>::default();
@@ -377,8 +403,9 @@ fn test_right_move_cursor() {
     update_stage.add_system(setup_cursor.system().label("setup_cursor"));
     update_stage.add_system(move_cursor.system().after("setup_cursor"));
 
-    let cursor_material = Handle::<ColorMaterial>::default();
-    world.insert_resource(CursorMaterials { cursor_material });
+    world.insert_resource(CursorMaterials {
+        cursor_material: Handle::<ColorMaterial>::default(),
+    });
     world.spawn().insert(Board);
 
     let mut input = Input::<KeyCode>::default();
@@ -419,8 +446,9 @@ fn test_down_move_cursor() {
     update_stage.add_system(setup_cursor.system().label("setup_cursor"));
     update_stage.add_system(move_cursor.system().after("setup_cursor"));
 
-    let cursor_material = Handle::<ColorMaterial>::default();
-    world.insert_resource(CursorMaterials { cursor_material });
+    world.insert_resource(CursorMaterials {
+        cursor_material: Handle::<ColorMaterial>::default(),
+    });
     world.spawn().insert(Board);
 
     let mut input = Input::<KeyCode>::default();
@@ -461,8 +489,9 @@ fn test_up_move_cursor() {
     update_stage.add_system(setup_cursor.system().label("setup_cursor"));
     update_stage.add_system(move_cursor.system().after("setup_cursor"));
 
-    let cursor_material = Handle::<ColorMaterial>::default();
-    world.insert_resource(CursorMaterials { cursor_material });
+    world.insert_resource(CursorMaterials {
+        cursor_material: Handle::<ColorMaterial>::default(),
+    });
     world.spawn().insert(Board);
 
     let mut input = Input::<KeyCode>::default();
@@ -504,8 +533,9 @@ fn test_left_move_cursor_three_times() {
     update_stage.add_system(setup_cursor.system().label("setup_cursor"));
     update_stage.add_system(move_cursor.system().after("setup_cursor"));
 
-    let cursor_material = Handle::<ColorMaterial>::default();
-    world.insert_resource(CursorMaterials { cursor_material });
+    world.insert_resource(CursorMaterials {
+        cursor_material: Handle::<ColorMaterial>::default(),
+    });
     world.spawn().insert(Board);
 
     let mut input = Input::<KeyCode>::default();
@@ -538,4 +568,49 @@ fn test_left_move_cursor_three_times() {
             .translation,
         Vec3::new(-1.0 * BLOCK_SIZE, 0.0, 0.0)
     );
+}
+
+#[test]
+fn test_setup_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(setup_block.system());
+
+    world.insert_resource(BlockMaterials {
+        red_material: Handle::<ColorMaterial>::default(),
+        green_material: Handle::<ColorMaterial>::default(),
+        blue_material: Handle::<ColorMaterial>::default(),
+        yellow_material: Handle::<ColorMaterial>::default(),
+        purple_material: Handle::<ColorMaterial>::default(),
+        indigo_material: Handle::<ColorMaterial>::default(),
+    });
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(
+            BOARD_WIDTH as f32 * BLOCK_SIZE,
+            BOARD_HEIGHT as f32 * BLOCK_SIZE,
+        )),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    update_stage.run(&mut world);
+    assert_eq!(
+        world
+            .query::<(&Board, Entity, &Transform, &Sprite)>()
+            .iter(&world)
+            .len(),
+        1
+    );
+    println!(
+        "{:?}",
+        world
+            .query::<(&Board, Entity, &Transform, &Sprite)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+    );
+    assert!(world.is_resource_added::<BlockMaterials>());
+    assert_eq!(world.query::<&Block>().iter(&world).len(), 5);
 }
