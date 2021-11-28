@@ -52,11 +52,11 @@ struct BoardMaterials {
     board_material: Handle<ColorMaterial>,
 }
 
-pub struct CursorMaterials {
+struct CursorMaterials {
     cursor_material: Handle<ColorMaterial>,
 }
 
-pub struct Cursor;
+struct Cursor;
 
 struct Board {
     relative_x: f32,
@@ -173,21 +173,24 @@ fn setup_block(mut commands: Commands, block_materials: Res<BlockMaterials>, que
     }
 }
 
-pub fn setup_cursor(mut commands: Commands, materials: Res<CursorMaterials>) {
-    commands
-        .spawn_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
-            material: materials.cursor_material.clone(),
-            transform: Transform {
-                translation: Vec3::new(0.0, 0.0, 0.0),
+fn setup_cursor(mut commands: Commands, materials: Res<CursorMaterials>, board: Query<Entity, With<Board>>) {
+    for board_entity in board.iter() {
+        let cursor = commands
+            .spawn_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+                material: materials.cursor_material.clone(),
+                transform: Transform {
+                    translation: Vec3::new(0.0, 0.0, 0.0),
+                    ..Default::default()
+                },
                 ..Default::default()
-            },
-            ..Default::default()
-        })
-        .insert(Cursor);
+            })
+            .insert(Cursor).id();
+        commands.entity(board_entity).push_children(&[cursor]);
+    }
 }
 
-pub fn move_cursor(
+fn move_cursor(
     keyboard_input: Res<Input<KeyCode>>,
     mut cursor: Query<&mut Transform, With<Cursor>>,
 ) {
