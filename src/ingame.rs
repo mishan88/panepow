@@ -29,13 +29,14 @@ enum BlockColor {
     Indigo,
 }
 
+#[derive(Debug)]
 struct Block;
 
 #[derive(Debug)]
 struct Move(f32, f32);
 
+#[derive(Debug)]
 struct Fixed;
-struct Moving;
 struct Matched;
 struct Despawining;
 
@@ -89,7 +90,7 @@ fn setup_board(mut commands: Commands, board_materials: Res<BoardMaterials>) {
                 BOARD_HEIGHT as f32 * BLOCK_SIZE,
             )),
             transform: Transform {
-                translation: Vec3::new(0.0, 0.0, 0.0),
+                translation: Vec3::ZERO,
                 ..Default::default()
             },
             ..Default::default()
@@ -199,7 +200,7 @@ fn setup_cursor(
                 sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
                 material: materials.cursor_material.clone(),
                 transform: Transform {
-                    translation: Vec3::new(0.0, 0.0, 0.0),
+                    translation: Vec3::ZERO,
                     ..Default::default()
                 },
                 ..Default::default()
@@ -603,14 +604,78 @@ fn test_setup_block() {
             .len(),
         1
     );
-    println!(
-        "{:?}",
-        world
-            .query::<(&Board, Entity, &Transform, &Sprite)>()
-            .iter(&world)
-            .next()
-            .unwrap()
-    );
     assert!(world.is_resource_added::<BlockMaterials>());
     assert_eq!(world.query::<&Block>().iter(&world).len(), 5);
+}
+
+#[test]
+fn test_tag_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(tag_block.system());
+
+    world.insert_resource(BlockMaterials {
+        red_material: Handle::<ColorMaterial>::default(),
+        green_material: Handle::<ColorMaterial>::default(),
+        blue_material: Handle::<ColorMaterial>::default(),
+        yellow_material: Handle::<ColorMaterial>::default(),
+        purple_material: Handle::<ColorMaterial>::default(),
+        indigo_material: Handle::<ColorMaterial>::default(),
+    });
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(
+            BOARD_WIDTH as f32 * BLOCK_SIZE,
+            BOARD_HEIGHT as f32 * BLOCK_SIZE,
+        )),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Blue)
+        .insert(Fixed);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Space);
+    world.insert_resource(input);
+
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
+
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
+    assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 2);
 }
