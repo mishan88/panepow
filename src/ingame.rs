@@ -56,6 +56,7 @@ struct CursorMaterials {
     cursor_material: Handle<ColorMaterial>,
 }
 
+#[derive(Debug)]
 struct Cursor;
 
 struct Board;
@@ -298,4 +299,243 @@ fn move_block(
             .remove::<Move>()
             .insert(Fixed);
     }
+}
+
+#[test]
+fn test_setup_board() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(setup_board.system());
+
+    let board_material = Handle::<ColorMaterial>::default();
+    world.insert_resource(BoardMaterials { board_material });
+    update_stage.run(&mut world);
+    assert!(world.is_resource_added::<BoardMaterials>());
+    assert_eq!(world.query::<&Board>().iter(&world).len(), 1);
+}
+
+#[test]
+fn test_setup_cursor() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(setup_cursor.system());
+
+    let cursor_material = Handle::<ColorMaterial>::default();
+    world.insert_resource(CursorMaterials { cursor_material });
+    world.spawn().insert(Board);
+    update_stage.run(&mut world);
+    assert!(world.is_resource_added::<CursorMaterials>());
+    assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
+}
+
+#[test]
+fn test_left_move_cursor() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(setup_cursor.system().label("setup_cursor"));
+    update_stage.add_system(move_cursor.system().after("setup_cursor"));
+
+    let cursor_material = Handle::<ColorMaterial>::default();
+    world.insert_resource(CursorMaterials { cursor_material });
+    world.spawn().insert(Board);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Left);
+    world.insert_resource(input);
+
+    update_stage.run(&mut world);
+    assert!(world.is_resource_added::<CursorMaterials>());
+    assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::ZERO
+    );
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::new(-1.0 * BLOCK_SIZE, 0.0, 0.0)
+    );
+}
+
+#[test]
+fn test_right_move_cursor() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(setup_cursor.system().label("setup_cursor"));
+    update_stage.add_system(move_cursor.system().after("setup_cursor"));
+
+    let cursor_material = Handle::<ColorMaterial>::default();
+    world.insert_resource(CursorMaterials { cursor_material });
+    world.spawn().insert(Board);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Right);
+    world.insert_resource(input);
+
+    update_stage.run(&mut world);
+    assert!(world.is_resource_added::<CursorMaterials>());
+    assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::ZERO
+    );
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::new(BLOCK_SIZE, 0.0, 0.0)
+    );
+}
+
+#[test]
+fn test_down_move_cursor() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(setup_cursor.system().label("setup_cursor"));
+    update_stage.add_system(move_cursor.system().after("setup_cursor"));
+
+    let cursor_material = Handle::<ColorMaterial>::default();
+    world.insert_resource(CursorMaterials { cursor_material });
+    world.spawn().insert(Board);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Down);
+    world.insert_resource(input);
+
+    update_stage.run(&mut world);
+    assert!(world.is_resource_added::<CursorMaterials>());
+    assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::ZERO
+    );
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::new(0.0, -1.0 * BLOCK_SIZE, 0.0)
+    );
+}
+
+#[test]
+fn test_up_move_cursor() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(setup_cursor.system().label("setup_cursor"));
+    update_stage.add_system(move_cursor.system().after("setup_cursor"));
+
+    let cursor_material = Handle::<ColorMaterial>::default();
+    world.insert_resource(CursorMaterials { cursor_material });
+    world.spawn().insert(Board);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Up);
+    world.insert_resource(input);
+
+    update_stage.run(&mut world);
+    assert!(world.is_resource_added::<CursorMaterials>());
+    assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::ZERO
+    );
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::new(0.0, BLOCK_SIZE, 0.0)
+    );
+}
+
+#[ignore = "How to input same key in multiple times?"]
+#[test]
+fn test_left_move_cursor_three_times() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(setup_cursor.system().label("setup_cursor"));
+    update_stage.add_system(move_cursor.system().after("setup_cursor"));
+
+    let cursor_material = Handle::<ColorMaterial>::default();
+    world.insert_resource(CursorMaterials { cursor_material });
+    world.spawn().insert(Board);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Left);
+    world.insert_resource(input);
+
+    update_stage.run(&mut world);
+    assert!(world.is_resource_added::<CursorMaterials>());
+    assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::ZERO
+    );
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    // world.get_resource_mut::<Input<KeyCode>>().unwrap().clear();
+    assert_eq!(
+        world
+            .query::<(&Cursor, &Transform)>()
+            .iter(&world)
+            .next()
+            .unwrap()
+            .1
+            .translation,
+        Vec3::new(-1.0 * BLOCK_SIZE, 0.0, 0.0)
+    );
 }
