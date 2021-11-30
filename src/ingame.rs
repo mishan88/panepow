@@ -313,7 +313,7 @@ fn match_block(
 ) {
     let mut table: Vec<Vec<(Option<BlockColor>, Option<Entity>)>> =
         vec![vec![(None, None); BOARD_WIDTH]; BOARD_HEIGHT];
-    let mut matched_entity_id: HashSet<u32> = HashSet::new();
+    let mut matched_entity: Vec<Entity> = Vec::new();
     // create match table
     for (entity, transform, block_color) in block.iter_mut() {
         let column_index = ((transform.translation.x + 125.0) / BLOCK_SIZE).floor() as usize;
@@ -330,78 +330,85 @@ fn match_block(
     }
     // x-axis matches
     for row in table.iter() {
-        let mut row_matched_entity_id: HashSet<u32> = HashSet::new();
+        let mut row_matched_entity: Vec<Entity> = Vec::new();
         let mut matched_color: Option<BlockColor> = None;
 
         for (row_block_color, row_block_entity) in row.iter() {
             match row_block_color {
                 None => {
                     // end matches
-                    if row_matched_entity_id.len() >= 3 {
-                        matched_entity_id.union(&row_matched_entity_id);
+                    if row_matched_entity.len() >= 3 {
+                        matched_entity.append(&mut row_matched_entity);
+                    } else {
+                        row_matched_entity.clear();
                     }
-                    row_matched_entity_id.clear();
                     matched_color = None;
                 }
                 Some(colored_block) => {
                     // check is same color
                     if matched_color == Some(*colored_block) {
                         if let Some(en) = row_block_entity {
-                            row_matched_entity_id.insert(en.id());
+                            row_matched_entity.push(*en);
                         }
                     } else {
                         // end matches
-                        if row_matched_entity_id.len() >= 3 {
-                            matched_entity_id = matched_entity_id.union(&row_matched_entity_id).collect();
+                        if row_matched_entity.len() >= 3 {
+                            matched_entity.append(&mut row_matched_entity);
+                        } else {
+                            row_matched_entity.clear();
                         }
-                        row_matched_entity_id.clear();
                         matched_color = Some(*colored_block);
+                        if let Some(en) = row_block_entity {
+                            row_matched_entity.push(*en);
+                        }
                     }
                 }
             }
         }
-        if row_matched_entity_id.len() >= 3 {
-            matched_entity_id.union(&row_matched_entity_id);
+        if row_matched_entity.len() >= 3 {
+            matched_entity.append(&mut row_matched_entity);
+        } else {
+            row_matched_entity.clear();
         }
     }
 
     // y-axis matches
-    for column_idx in 0..BOARD_WIDTH {
-        let mut column_matched_entity = HashSet::new();
-        let mut matched_color = None;
-        for row_idx in 0..BOARD_HEIGHT {
-            match table[row_idx][column_idx].0 {
-                None => {
-                    // end matches
-                    if column_matched_entity.len() >= 3 {
-                        matched_entity_id.union(&column_matched_entity);
-                    }
-                    column_matched_entity.clear();
-                    matched_color = None;
-                }
-                Some(colored_block) => {
-                    if matched_color == Some(colored_block) {
-                        if let Some(en) = table[row_idx][column_idx].1 {
-                            column_matched_entity.insert(en.id());
-                        }
-                    } else {
-                        // end matches
-                        if column_matched_entity.len() >= 3 {
-                            matched_entity_id.union(&column_matched_entity);
-                        }
-                        column_matched_entity.clear();
-                        matched_color = Some(colored_block);
-                    }
-                }
-            }
-        }
-    }
+    // for column_idx in 0..BOARD_WIDTH {
+    //     let mut column_matched_entity = HashSet::new();
+    //     let mut matched_color = None;
+    //     for row_idx in 0..BOARD_HEIGHT {
+    //         match table[row_idx][column_idx].0 {
+    //             None => {
+    //                 // end matches
+    //                 if column_matched_entity.len() >= 3 {
+    //                     matched_entity.union(&column_matched_entity);
+    //                 }
+    //                 column_matched_entity.clear();
+    //                 matched_color = None;
+    //             }
+    //             Some(colored_block) => {
+    //                 if matched_color == Some(colored_block) {
+    //                     if let Some(en) = table[row_idx][column_idx].1 {
+    //                         column_matched_entity.insert(en);
+    //                     }
+    //                 } else {
+    //                     // end matches
+    //                     if column_matched_entity.len() >= 3 {
+    //                         matched_entity.union(&column_matched_entity);
+    //                     }
+    //                     column_matched_entity.clear();
+    //                     matched_color = Some(colored_block);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     // match_entry
-    dbg!(&matched_entity_id);
-    if matched_entity_id.len() >= 3 {
+    dbg!(&matched_entity);
+    if matched_entity.len() >= 3 {
         println!("matched!");
-        for en in matched_entity_id {
+        for en in matched_entity {
             commands.entity(en).insert(Matched).remove::<Fixed>();
         }
     }
@@ -850,4 +857,155 @@ fn test_move_block() {
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 0);
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
+}
+
+#[test]
+fn test_match_row_block_three_matched() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(match_block.system());
+
+    for i in 0..3 {
+        world
+            .spawn()
+            .insert(Block)
+            .insert_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                transform: Transform {
+                    translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32, 0.0, 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(BlockColor::Red)
+            .insert(Fixed);
+    }
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 3);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 3);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_match_row_block_four_matched() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(match_block.system());
+
+    for i in 0..4 {
+        world
+            .spawn()
+            .insert(Block)
+            .insert_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                transform: Transform {
+                    translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32, 0.0, 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(BlockColor::Red)
+            .insert(Fixed);
+    }
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 4);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 4);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_match_row_block_five_matched() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(match_block.system());
+
+    for i in 0..5 {
+        world
+            .spawn()
+            .insert(Block)
+            .insert_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                transform: Transform {
+                    translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32, 0.0, 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(BlockColor::Red)
+            .insert(Fixed);
+    }
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 5);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 5);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_match_row_block_six_matched() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(match_block.system());
+
+    for i in 0..6 {
+        world
+            .spawn()
+            .insert(Block)
+            .insert_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                transform: Transform {
+                    translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32, 0.0, 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(BlockColor::Red)
+            .insert(Fixed);
+    }
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 6);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 6);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_match_row_block_six_matched_two_colors() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(match_block.system());
+
+    for i in 0..6 {
+        if i < 3 {
+            world
+            .spawn()
+            .insert(Block)
+            .insert_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                transform: Transform {
+                    translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32, 0.0, 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(BlockColor::Red)
+            .insert(Fixed);
+        } else {
+            world
+            .spawn()
+            .insert(Block)
+            .insert_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                transform: Transform {
+                    translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32, 0.0, 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(BlockColor::Blue)
+            .insert(Fixed);
+        }
+    }
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 6);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 6);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
 }
