@@ -318,14 +318,11 @@ fn match_block(
     for (entity, transform, block_color) in block.iter_mut() {
         let column_index = ((transform.translation.x + 125.0) / BLOCK_SIZE).floor() as usize;
         let row_index = ((transform.translation.y + 300.0) / BLOCK_SIZE).floor() as usize;
-        match table.get_mut(row_index) {
-            Some(column_vec) => {
-                let _ = std::mem::replace(
-                    &mut column_vec[column_index],
-                    (Some(*block_color), Some(entity)),
-                );
-            }
-            None => {}
+        if let Some(column_vec) = table.get_mut(row_index) {
+            let _ = std::mem::replace(
+                &mut column_vec[column_index],
+                (Some(*block_color), Some(entity)),
+            );
         }
     }
     // x-axis matches
@@ -376,8 +373,8 @@ fn match_block(
     for column_idx in 0..BOARD_WIDTH {
         let mut column_matched_entity = Vec::new();
         let mut matched_color = None;
-        for row_idx in 0..BOARD_HEIGHT {
-            match table[row_idx][column_idx].0 {
+        for row in table.iter() {
+            match row[column_idx].0 {
                 None => {
                     // end matches
                     if column_matched_entity.len() >= 3 {
@@ -389,7 +386,7 @@ fn match_block(
                 }
                 Some(colored_block) => {
                     if matched_color == Some(colored_block) {
-                        if let Some(en) = table[row_idx][column_idx].1 {
+                        if let Some(en) = row[column_idx].1 {
                             column_matched_entity.push(en);
                         }
                     } else {
@@ -400,7 +397,7 @@ fn match_block(
                             column_matched_entity.clear();
                         }
                         matched_color = Some(colored_block);
-                        if let Some(en) = table[row_idx][column_idx].1 {
+                        if let Some(en) = row[column_idx].1 {
                             column_matched_entity.push(en);
                         }
                     }
@@ -413,14 +410,12 @@ fn match_block(
     // matched_entity.dedup();
 
     // match_entry
-    if matched_entity.len() >= 3 {
+    if !matched_entity.is_empty() {
         println!("matched!");
         for en in matched_entity {
             commands.entity(en).insert(Matched).remove::<Fixed>();
         }
     }
-
-    // TODO: match number
 }
 
 #[test]
@@ -926,6 +921,64 @@ fn test_match_row_block_four_matched() {
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 4);
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_match_row_block_three_matched_only() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(match_block.system());
+
+    for i in 0..5 {
+        match i {
+            0 | 1 | 2 | 4 => {
+                world
+                    .spawn()
+                    .insert(Block)
+                    .insert_bundle(SpriteBundle {
+                        sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                        transform: Transform {
+                            translation: Vec3::new(
+                                BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
+                                0.0,
+                                0.0,
+                            ),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                    .insert(BlockColor::Red)
+                    .insert(Fixed);
+            }
+            3 => {
+                world
+                    .spawn()
+                    .insert(Block)
+                    .insert_bundle(SpriteBundle {
+                        sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                        transform: Transform {
+                            translation: Vec3::new(
+                                BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
+                                0.0,
+                                0.0,
+                            ),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                    .insert(BlockColor::Blue)
+                    .insert(Fixed);
+            }
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 5);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 3);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
 }
 
 #[test]
