@@ -1,6 +1,7 @@
+use std::time::Duration;
+
 use bevy::prelude::*;
 use bevy_easings::*;
-use std::collections::HashSet;
 
 pub struct IngamePlugin;
 
@@ -13,7 +14,9 @@ impl Plugin for IngamePlugin {
             .add_system(move_cursor.system())
             .add_system(tag_block.system().label("tag"))
             .add_system(move_block.system().after("tag"))
-            .add_system(match_block.system());
+            .add_system(match_block.system())
+            .add_system(prepare_despawn_block.system())
+            .add_system(despawn_block.system());
     }
 }
 
@@ -40,7 +43,7 @@ struct Move(f32, f32);
 #[derive(Debug)]
 struct Fixed;
 struct Matched;
-struct Despawining;
+struct Despawining(Timer);
 
 struct BlockMaterials {
     red_material: Handle<ColorMaterial>,
@@ -405,9 +408,37 @@ fn match_block(
 
     // match_entry
     if !matched_entity.is_empty() {
-        println!("matched!");
         for en in matched_entity {
             commands.entity(en).insert(Matched).remove::<Fixed>();
+        }
+    }
+}
+
+fn prepare_despawn_block(
+    mut commands: Commands,
+    mut block: Query<Entity, (With<Block>, With<Matched>)>,
+) {
+    // TODO: duration should be `matched_blocks * some_duration`
+    // TODO: despawning animation
+    for entity in block.iter_mut() {
+        commands
+            .entity(entity)
+            .remove::<Matched>()
+            .insert(Despawining(Timer::from_seconds(1.0, false)));
+    }
+}
+
+fn despawn_block(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut block: Query<(Entity, &mut Despawining), (With<Block>, With<Despawining>)>,
+) {
+    for (entity, mut despawning) in block.iter_mut() {
+        despawning
+            .0
+            .tick(Duration::from_secs_f32(time.delta_seconds()));
+        if despawning.0.just_finished() {
+            commands.entity(entity).despawn();
         }
     }
 }
@@ -1173,4 +1204,38 @@ fn test_match_row_and_column_block_five_matched() {
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 5);
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_prepare_despawn_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(prepare_despawn_block.system());
+
+    world.spawn().insert(Block).insert(Matched);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 0);
+    assert_eq!(
+        world.query::<(&Block, &Despawining)>().iter(&world).len(),
+        1
+    );
+}
+
+#[ignore = "how to update time?"]
+#[test]
+fn test_despawn_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(despawn_block.system());
+    let time = Time::default();
+    world.insert_resource(time);
+
+    let block = world
+        .spawn()
+        .insert(Block)
+        .insert(Despawining(Timer::from_seconds(0.009, false)))
+        .id();
+
+    update_stage.run(&mut world);
+    assert!(world.get::<Block>(block).is_none());
 }
