@@ -344,9 +344,6 @@ fn match_block(
                 Some(colored_block) => {
                     // check is same color
                     if matched_color == Some(*colored_block) {
-                        if let Some(en) = row_block_entity {
-                            row_matched_entity.push(*en);
-                        }
                     } else {
                         // end matches
                         if row_matched_entity.len() >= 3 {
@@ -355,9 +352,9 @@ fn match_block(
                             row_matched_entity.clear();
                         }
                         matched_color = Some(*colored_block);
-                        if let Some(en) = row_block_entity {
-                            row_matched_entity.push(*en);
-                        }
+                    }
+                    if let Some(en) = row_block_entity {
+                        row_matched_entity.push(*en);
                     }
                 }
             }
@@ -386,9 +383,6 @@ fn match_block(
                 }
                 Some(colored_block) => {
                     if matched_color == Some(colored_block) {
-                        if let Some(en) = row[column_idx].1 {
-                            column_matched_entity.push(en);
-                        }
                     } else {
                         // end matches
                         if column_matched_entity.len() >= 3 {
@@ -397,9 +391,9 @@ fn match_block(
                             column_matched_entity.clear();
                         }
                         matched_color = Some(colored_block);
-                        if let Some(en) = row[column_idx].1 {
-                            column_matched_entity.push(en);
-                        }
+                    }
+                    if let Some(en) = row[column_idx].1 {
+                        column_matched_entity.push(en);
                     }
                 }
             }
