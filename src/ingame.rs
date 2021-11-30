@@ -409,8 +409,10 @@ fn match_block(
         }
     }
 
+    // not necessary
+    // matched_entity.dedup();
+
     // match_entry
-    matched_entity.dedup();
     if matched_entity.len() >= 3 {
         println!("matched!");
         for en in matched_entity {
