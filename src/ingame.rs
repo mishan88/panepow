@@ -535,6 +535,8 @@ fn check_fall_block(
             for (other_entity, other_transform) in other_block.iter_mut() {
                 if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
                     < f32::EPSILON
+                && (transform.translation.x - other_transform.translation.x).abs()
+                    < f32::EPSILON
                 {
                     is_exist = true;
                     break;
@@ -557,8 +559,8 @@ fn fall_block(
             .entity(entity)
             .insert(transform.ease_to(
                 Transform::from_translation(Vec3::new(
-                    transform.translation.x - BLOCK_SIZE,
-                    transform.translation.y,
+                    transform.translation.x,
+                    transform.translation.y - BLOCK_SIZE,
                     transform.translation.z,
                 )),
                 bevy_easings::EaseMethod::Linear,
@@ -566,8 +568,7 @@ fn fall_block(
                     duration: std::time::Duration::from_millis(150),
                 },
             ))
-            .remove::<Fall>()
-            .insert(Fixed);
+            .remove::<Fall>();
     }
 }
 
