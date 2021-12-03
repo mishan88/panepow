@@ -216,6 +216,26 @@ fn setup_block(
             .insert(Fixed)
             .id();
         commands.entity(board_entity).push_children(&[block]);
+        let block = commands
+            .spawn_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                material: block_materials.blue_material.clone(),
+                transform: Transform {
+                    translation: Vec3::new(
+                        relative_x + BLOCK_SIZE * 2.0,
+                        relative_y + BLOCK_SIZE * 2.0,
+                        0.0,
+                    ),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(Block)
+            .insert(BlockColor::Blue)
+            .insert(Fixed)
+            .id();
+        commands.entity(board_entity).push_children(&[block]);
+
     }
 }
 
@@ -312,7 +332,7 @@ fn move_block(
                 Transform::from_translation(Vec3::new(target.0, target.1, 0.0)),
                 bevy_easings::EaseMethod::Linear,
                 bevy_easings::EasingType::Once {
-                    duration: std::time::Duration::from_millis(150),
+                    duration: std::time::Duration::from_millis(60),
                 },
             ))
             .remove::<Move>()
@@ -525,6 +545,7 @@ fn despawn_block(
 }
 
 // TODO: integrate match block
+// TODO: fall same time above the block
 fn check_fall_block(
     mut commands: Commands,
     mut block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
@@ -537,12 +558,7 @@ fn check_fall_block(
             for other_transform in other_block.iter_mut() {
                 if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
                     < f32::EPSILON
-                    && ((transform.translation.x - other_transform.translation.x) < BLOCK_SIZE
-                        && (transform.translation.x - other_transform.translation.x) > 0.0
-                        || ((other_transform.translation.x - transform.translation.x) < BLOCK_SIZE
-                            && (other_transform.translation.x - transform.translation.x) > 0.0)
-                        || ((transform.translation.x - other_transform.translation.x).abs()
-                            < f32::EPSILON))
+                    && (transform.translation.x - other_transform.translation.x).abs() < BLOCK_SIZE
                 {
                     is_exist = true;
                     break;
