@@ -12,14 +12,15 @@ impl Plugin for IngamePlugin {
             .add_startup_stage("setup_block", SystemStage::single(setup_block.system()))
             .add_startup_stage("setup_cursor", SystemStage::single(setup_cursor.system()))
             .add_system(move_cursor.system())
-            .add_system(tag_block.system())
+            .add_system(move_tag_block.system())
             .add_system(move_block.system())
             .add_system(match_block.system())
             .add_system(prepare_despawn_block.system())
             .add_system(despawn_block.system())
             .add_system(check_fall_block.system())
             .add_system(fall_block.system())
-            .add_system(falling_to_fix.system());
+            .add_system(falling_to_fix.system())
+            .add_system(moving_to_fixed.system());
     }
 }
 
@@ -41,7 +42,9 @@ enum BlockColor {
 struct Block;
 
 #[derive(Debug)]
-struct Move(f32, f32);
+struct Move(f32);
+
+struct Moving(Timer);
 
 #[derive(Debug)]
 struct Fixed;
@@ -280,7 +283,7 @@ fn move_cursor(
     }
 }
 
-fn tag_block(
+fn move_tag_block(
     keyboard_input: Res<Input<KeyCode>>,
     mut commands: Commands,
     cursor: Query<&Transform, With<Cursor>>,
@@ -300,14 +303,14 @@ fn tag_block(
                         commands
                             .entity(block_entity)
                             .remove::<Fixed>()
-                            .insert(Move(right_x, cursor_transform.translation.y));
+                            .insert(Move(right_x));
                     }
                     // right -> left
                     if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
                         commands
                             .entity(block_entity)
                             .remove::<Fixed>()
-                            .insert(Move(left_x, cursor_transform.translation.y));
+                            .insert(Move(left_x));
                     }
                 }
             }
@@ -322,26 +325,40 @@ fn tag_block(
 
 fn move_block(
     mut commands: Commands,
-    mut block_query: Query<(Entity, &Transform, &Move), (With<Block>, With<Move>)>,
+    mut block: Query<(Entity, &Transform, &Move), (With<Block>, With<Move>)>,
 ) {
-    for (entity, transform, target) in block_query.iter_mut() {
+    for (entity, transform, target) in block.iter_mut() {
         commands
             .entity(entity)
             .insert(transform.ease_to(
-                Transform::from_translation(Vec3::new(target.0, target.1, 0.0)),
+                Transform::from_translation(Vec3::new(target.0, transform.translation.y, 0.0)),
                 bevy_easings::EaseMethod::Linear,
                 bevy_easings::EasingType::Once {
                     duration: std::time::Duration::from_millis(60),
                 },
             ))
             .remove::<Move>()
-            .insert(Fixed);
+            .insert(Moving(Timer::from_seconds(0.06, false)));
+    }
+}
+
+fn moving_to_fixed(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut block: Query<(Entity, &mut Moving), (With<Block>, With<Moving>)>,
+) {
+    for (entity, mut moving) in block.iter_mut() {
+        moving.0.tick(Duration::from_secs_f32(time.delta_seconds()));
+        if moving.0.just_finished() {
+            commands.entity(entity).remove::<Moving>().insert(Fixed);
+        }
     }
 }
 
 // TODO: which fast?
 // can not use collide
 // match and fall check should be double loop...
+// can not upwarding `Fall` state
 fn _match_block(
     mut commands: Commands,
     mut block: Query<
@@ -951,10 +968,10 @@ fn test_setup_block() {
 }
 
 #[test]
-fn test_tag_block() {
+fn test_move_tag_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(tag_block.system());
+    update_stage.add_system(move_tag_block.system());
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite::new(Vec2::new(
@@ -1032,7 +1049,7 @@ fn test_move_block() {
             ..Default::default()
         })
         .insert(BlockColor::Red)
-        .insert(Move(-1.0 * BLOCK_SIZE / 2.0, 0.0));
+        .insert(Move(-1.0 * BLOCK_SIZE / 2.0));
     world
         .spawn()
         .insert(Block)
@@ -1045,12 +1062,12 @@ fn test_move_block() {
             ..Default::default()
         })
         .insert(BlockColor::Blue)
-        .insert(Move(BLOCK_SIZE / 2.0, 0.0));
+        .insert(Move(BLOCK_SIZE / 2.0));
 
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 2);
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 0);
-    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
+    assert_eq!(world.query::<(&Block, &Moving)>().iter(&world).len(), 2);
 }
 
 #[test]
@@ -1639,7 +1656,7 @@ fn test_check_fall_block_there_is_start_block_move() {
             },
             ..Default::default()
         })
-        .insert(Move(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0));
+        .insert(Move(BLOCK_SIZE / 2.0));
     world
         .spawn()
         .insert(Block)
@@ -1651,7 +1668,7 @@ fn test_check_fall_block_there_is_start_block_move() {
             },
             ..Default::default()
         })
-        .insert(Move(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0));
+        .insert(Move(BLOCK_SIZE / 2.0));
 
     world
         .spawn()
