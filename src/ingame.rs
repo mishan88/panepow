@@ -18,7 +18,8 @@ impl Plugin for IngamePlugin {
             .add_system(prepare_despawn_block.system())
             .add_system(despawn_block.system())
             .add_system(check_fall_block.system())
-            .add_system(fall_block.system());
+            .add_system(fall_block.system())
+            .add_system(falling_to_fix.system());
     }
 }
 
@@ -46,6 +47,7 @@ struct Move(f32, f32);
 struct Fixed;
 struct Matched;
 struct Fall;
+struct Falling(Timer);
 struct Despawining(Timer);
 
 struct BlockMaterials {
@@ -572,7 +574,23 @@ fn fall_block(
                     duration: std::time::Duration::from_millis(150),
                 },
             ))
-            .remove::<Fall>();
+            .remove::<Fall>()
+            .insert(Falling(Timer::from_seconds(0.15, false)));
+    }
+}
+
+fn falling_to_fix(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut block: Query<(Entity, &mut Falling), (With<Block>, With<Falling>)>,
+) {
+    for (entity, mut falling) in block.iter_mut() {
+        falling
+            .0
+            .tick(Duration::from_secs_f32(time.delta_seconds()));
+        if falling.0.just_finished() {
+            commands.entity(entity).remove::<Falling>().insert(Fixed);
+        }
     }
 }
 
