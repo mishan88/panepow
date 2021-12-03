@@ -43,6 +43,7 @@ struct Move(f32, f32);
 #[derive(Debug)]
 struct Fixed;
 struct Matched;
+struct Fall;
 struct Despawining(Timer);
 
 struct BlockMaterials {
@@ -247,18 +248,12 @@ fn tag_block(
             let x = cursor_transform.translation.x;
             let left_x = x - BLOCK_SIZE / 2.0;
             let right_x = x + BLOCK_SIZE / 2.0;
-            println!(
-                "cursor: {}, {}, {}",
-                left_x, right_x, cursor_transform.translation.y
-            );
             for (block_entity, block_transform) in block.iter_mut() {
                 if (block_transform.translation.y - cursor_transform.translation.y).abs()
                     < f32::EPSILON
                 {
                     // left -> right
                     if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
-                        println!("left block: {}, {}", left_x, cursor_transform.translation.y);
-                        println!("left block: {:?}", block_entity.id());
                         commands
                             .entity(block_entity)
                             .remove::<Fixed>()
@@ -266,11 +261,6 @@ fn tag_block(
                     }
                     // right -> left
                     if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
-                        println!(
-                            "right block: {}, {}",
-                            right_x, cursor_transform.translation.y
-                        );
-                        println!("right block: {:?}", block_entity.id());
                         commands
                             .entity(block_entity)
                             .remove::<Fixed>()
@@ -292,7 +282,6 @@ fn move_block(
     mut block_query: Query<(Entity, &Transform, &Move), (With<Block>, With<Move>)>,
 ) {
     for (entity, transform, target) in block_query.iter_mut() {
-        println!("{}, {}, {:?}", entity.id(), transform.translation, target);
         commands
             .entity(entity)
             .insert(transform.ease_to(
@@ -307,7 +296,71 @@ fn move_block(
     }
 }
 
+// TODO: which fast?
+// use collide?
 fn match_block(
+    mut commands: Commands,
+    mut block: Query<
+        (Entity, &Transform, &BlockColor),
+        (With<Block>, With<Fixed>, With<BlockColor>),
+    >,
+    mut other_block: Query<
+        (Entity, &Transform, &BlockColor),
+        (With<Block>, With<Fixed>, With<BlockColor>),
+    >,
+) {
+    let mut matched_entities: Vec<Entity> = Vec::new();
+    for (entity, transform, block_color) in block.iter_mut() {
+        let mut row_matched_entities = Vec::with_capacity(4);
+        let mut column_matched_entities = Vec::with_capacity(4);
+
+        for (other_entity, other_transform, other_block_color) in other_block.iter_mut() {
+            // left next to
+            if (transform.translation.x - other_transform.translation.x - BLOCK_SIZE).abs()
+                < f32::EPSILON
+                && block_color == other_block_color
+            {
+                row_matched_entities.push(entity);
+                row_matched_entities.push(other_entity);
+            }
+            // right next to
+            if (transform.translation.x - other_transform.translation.x + BLOCK_SIZE).abs()
+                < f32::EPSILON
+                && block_color == other_block_color
+            {
+                row_matched_entities.push(entity);
+                row_matched_entities.push(other_entity);
+            }
+            // top next to
+            if (transform.translation.y - other_transform.translation.y + BLOCK_SIZE).abs()
+                < f32::EPSILON
+                && block_color == other_block_color
+            {
+                column_matched_entities.push(entity);
+                column_matched_entities.push(other_entity);
+            }
+            // down next to
+            if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
+                < f32::EPSILON
+                && block_color == other_block_color
+            {
+                column_matched_entities.push(entity);
+                column_matched_entities.push(other_entity);
+            }
+        }
+        if row_matched_entities.len() == 4 {
+            matched_entities.append(&mut row_matched_entities);
+        }
+        if column_matched_entities.len() == 4 {
+            matched_entities.append(&mut column_matched_entities);
+        }
+    }
+    for en in matched_entities {
+        commands.entity(en).insert(Matched).remove::<Fixed>();
+    }
+}
+
+fn _match_block(
     mut commands: Commands,
     mut block: Query<
         (Entity, &Transform, &BlockColor),
@@ -442,6 +495,31 @@ fn despawn_block(
         }
     }
 }
+
+// TODO: integrate match block
+fn check_fall_block(
+    mut commands: Commands,
+    mut block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
+    mut other_block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
+) {
+    // check is there block down next to?
+    for (entity, transform) in block.iter_mut() {
+        let mut is_exist = false;
+        for (other_entity, other_transform) in other_block.iter_mut() {
+            if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
+                < f32::EPSILON
+            {
+                is_exist = true;
+                break;
+            }
+        }
+        if !is_exist {
+            commands.entity(entity).insert(Fall);
+        }
+    }
+}
+
+fn fall_block() {}
 
 #[test]
 fn test_setup_board() {
