@@ -16,7 +16,9 @@ impl Plugin for IngamePlugin {
             .add_system(move_block.system().after("tag"))
             .add_system(match_block.system())
             .add_system(prepare_despawn_block.system())
-            .add_system(despawn_block.system());
+            .add_system(despawn_block.system())
+            .add_system(check_fall_block.system())
+            .add_system(fall_block.system());
     }
 }
 
@@ -192,6 +194,26 @@ fn setup_block(
             .insert(Fixed)
             .id();
         commands.entity(board_entity).push_children(&[block]);
+
+        let block = commands
+            .spawn_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                material: block_materials.red_material.clone(),
+                transform: Transform {
+                    translation: Vec3::new(
+                        relative_x + BLOCK_SIZE * 2.0,
+                        relative_y + BLOCK_SIZE,
+                        0.0,
+                    ),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(Block)
+            .insert(BlockColor::Red)
+            .insert(Fixed)
+            .id();
+        commands.entity(board_entity).push_children(&[block]);
     }
 }
 
@@ -318,6 +340,7 @@ fn match_block(
             // left next to
             if (transform.translation.x - other_transform.translation.x - BLOCK_SIZE).abs()
                 < f32::EPSILON
+                && (transform.translation.y - other_transform.translation.y).abs() < f32::EPSILON
                 && block_color == other_block_color
             {
                 row_matched_entities.push(entity);
@@ -326,6 +349,7 @@ fn match_block(
             // right next to
             if (transform.translation.x - other_transform.translation.x + BLOCK_SIZE).abs()
                 < f32::EPSILON
+                && (transform.translation.y - other_transform.translation.y).abs() < f32::EPSILON
                 && block_color == other_block_color
             {
                 row_matched_entities.push(entity);
@@ -334,6 +358,7 @@ fn match_block(
             // top next to
             if (transform.translation.y - other_transform.translation.y + BLOCK_SIZE).abs()
                 < f32::EPSILON
+                && (transform.translation.x - other_transform.translation.x).abs() < f32::EPSILON
                 && block_color == other_block_color
             {
                 column_matched_entities.push(entity);
@@ -342,6 +367,7 @@ fn match_block(
             // down next to
             if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
                 < f32::EPSILON
+                && (transform.translation.x - other_transform.translation.x).abs() < f32::EPSILON
                 && block_color == other_block_color
             {
                 column_matched_entities.push(entity);
@@ -504,22 +530,46 @@ fn check_fall_block(
 ) {
     // check is there block down next to?
     for (entity, transform) in block.iter_mut() {
-        let mut is_exist = false;
-        for (other_entity, other_transform) in other_block.iter_mut() {
-            if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
-                < f32::EPSILON
-            {
-                is_exist = true;
-                break;
+        if transform.translation.y > -300.0 {
+            let mut is_exist = false;
+            for (other_entity, other_transform) in other_block.iter_mut() {
+                if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
+                    < f32::EPSILON
+                {
+                    is_exist = true;
+                    break;
+                }
             }
-        }
-        if !is_exist {
-            commands.entity(entity).insert(Fall);
+            if !is_exist {
+                commands.entity(entity).remove::<Fixed>().insert(Fall);
+            }
         }
     }
 }
 
-fn fall_block() {}
+// TODO: fix falling time
+fn fall_block(
+    mut commands: Commands,
+    mut block: Query<(Entity, &Transform), (With<Block>, With<Fall>)>,
+) {
+    for (entity, transform) in block.iter_mut() {
+        commands
+            .entity(entity)
+            .insert(transform.ease_to(
+                Transform::from_translation(Vec3::new(
+                    transform.translation.x - BLOCK_SIZE,
+                    transform.translation.y,
+                    transform.translation.z,
+                )),
+                bevy_easings::EaseMethod::Linear,
+                bevy_easings::EasingType::Once {
+                    duration: std::time::Duration::from_millis(150),
+                },
+            ))
+            .remove::<Fall>()
+            .insert(Fixed);
+    }
+}
 
 #[test]
 fn test_setup_board() {
@@ -1198,6 +1248,96 @@ fn test_match_row_block_six_matched_two_colors() {
 }
 
 #[test]
+fn test_no_match_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(match_block.system());
+
+    world
+        .spawn()
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE * 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Block)
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Block)
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Block)
+        .insert(BlockColor::Blue)
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE * 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Block)
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE * 3.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Block)
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Block)
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 6);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 6);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 0);
+}
+
+#[test]
 fn test_match_column_block_three_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
@@ -1316,4 +1456,48 @@ fn test_despawn_block() {
 
     update_stage.run(&mut world);
     assert!(world.get::<Block>(block).is_none());
+}
+
+#[test]
+fn test_check_fall_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(check_fall_block.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 1);
+}
+
+#[test]
+fn test_check_fall_block_bottom_block_not_fall() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(check_fall_block.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 }
