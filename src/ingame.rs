@@ -12,8 +12,8 @@ impl Plugin for IngamePlugin {
             .add_startup_stage("setup_block", SystemStage::single(setup_block.system()))
             .add_startup_stage("setup_cursor", SystemStage::single(setup_cursor.system()))
             .add_system(move_cursor.system())
-            .add_system(tag_block.system().label("tag"))
-            .add_system(move_block.system().after("tag"))
+            .add_system(tag_block.system())
+            .add_system(move_block.system())
             .add_system(match_block.system())
             .add_system(prepare_despawn_block.system())
             .add_system(despawn_block.system())
@@ -84,7 +84,7 @@ fn setup_assets(mut commands: Commands, mut materials: ResMut<Assets<ColorMateri
         indigo_material: materials.add(Color::INDIGO.into()),
     });
     commands.insert_resource(BoardMaterials {
-        board_material: materials.add(Color::rgba(1.0, 1.0, 1.0, 0.0).into()),
+        board_material: materials.add(Color::rgba(1.0, 1.0, 1.0, 0.1).into()),
     });
     commands.insert_resource(CursorMaterials {
         cursor_material: materials.add(Color::rgba(0.0, 0.0, 0.0, 0.7).into()),
@@ -321,7 +321,7 @@ fn move_block(
 }
 
 // TODO: which fast?
-// use collide?
+// can not use collide
 fn match_block(
     mut commands: Commands,
     mut block: Query<
