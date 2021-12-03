@@ -526,17 +526,21 @@ fn despawn_block(
 fn check_fall_block(
     mut commands: Commands,
     mut block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
-    mut other_block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
+    mut other_block: Query<&Transform, With<Block>>,
 ) {
     // check is there block down next to?
     for (entity, transform) in block.iter_mut() {
         if transform.translation.y > -300.0 {
             let mut is_exist = false;
-            for (other_entity, other_transform) in other_block.iter_mut() {
+            for other_transform in other_block.iter_mut() {
                 if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
                     < f32::EPSILON
-                && (transform.translation.x - other_transform.translation.x).abs()
-                    < f32::EPSILON
+                    && ((transform.translation.x - other_transform.translation.x) < BLOCK_SIZE
+                        && (transform.translation.x - other_transform.translation.x) > 0.0
+                        || ((other_transform.translation.x - transform.translation.x) < BLOCK_SIZE
+                            && (other_transform.translation.x - transform.translation.x) > 0.0)
+                        || ((transform.translation.x - other_transform.translation.x).abs()
+                            < f32::EPSILON))
                 {
                     is_exist = true;
                     break;
@@ -1479,6 +1483,229 @@ fn test_check_fall_block() {
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 1);
+}
+
+#[test]
+fn test_check_fall_block_there_isnot_between_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(check_fall_block.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -5.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 3);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 1);
+}
+
+#[test]
+fn test_check_fall_block_there_is_between_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(check_fall_block.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -5.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 4);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_check_fall_block_there_is_start_block_move() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(check_fall_block.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -5.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Move(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0));
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Move(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0));
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_check_fall_block_there_is_between_block_move() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(check_fall_block.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -5.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE + 1.0, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 - 1.0, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 4);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 0);
 }
 
 #[test]
