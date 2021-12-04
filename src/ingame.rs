@@ -18,6 +18,7 @@ impl Plugin for IngamePlugin {
             .add_system(prepare_despawn_block.system())
             .add_system(despawn_block.system())
             .add_system(check_fall_block.system())
+            .add_system(fall_upward.system())
             .add_system(fall_block.system())
             .add_system(falling_to_fix.system())
             .add_system(moving_to_fixed.system());
@@ -49,6 +50,7 @@ struct Moving(Timer);
 #[derive(Debug)]
 struct Fixed;
 struct Matched;
+struct FallPrepare;
 struct Fall;
 struct Falling(Timer);
 struct Despawining(Timer);
@@ -359,7 +361,7 @@ fn moving_to_fixed(
 // can not use collide
 // match and fall check should be double loop...
 // can not upwarding `Fall` state
-fn _match_block(
+fn match_block(
     mut commands: Commands,
     mut block: Query<
         (Entity, &Transform, &BlockColor),
@@ -425,7 +427,7 @@ fn _match_block(
     }
 }
 
-fn match_block(
+fn _match_block(
     mut commands: Commands,
     mut block: Query<
         (Entity, &Transform, &BlockColor),
@@ -582,9 +584,68 @@ fn check_fall_block(
                 }
             }
             if !is_exist {
-                commands.entity(entity).remove::<Fixed>().insert(Fall);
+                commands
+                    .entity(entity)
+                    .remove::<Fixed>()
+                    .insert(FallPrepare);
             }
         }
+    }
+}
+
+fn fall_upward(
+    mut commands: Commands,
+    mut fallprepare_block: Query<(Entity, &Transform), (With<Block>, With<FallPrepare>)>,
+    mut fixed_block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
+) {
+    for (fallprepare_entity, fallprepare_transform) in fallprepare_block.iter_mut() {
+        for (fixed_entity, fixed_transform) in fixed_block.iter_mut() {
+            if fallprepare_transform.translation.y < fixed_transform.translation.y
+                && (fallprepare_transform.translation.x - fixed_transform.translation.x).abs()
+                    < f32::EPSILON
+            {
+                commands.entity(fixed_entity).remove::<Fixed>().insert(Fall);
+            }
+        }
+        commands
+            .entity(fallprepare_entity)
+            .remove::<FallPrepare>()
+            .insert(Fall);
+    }
+}
+
+//
+fn _check_fall_block(mut commands: Commands, mut block: Query<(Entity, &Transform), With<Block>>) {
+    let mut table: Vec<Vec<Option<Entity>>> = vec![vec![None; BOARD_WIDTH]; BOARD_HEIGHT];
+    let mut fall_entity: Vec<Entity> = Vec::new();
+    // create match table
+    for (entity, transform) in block.iter_mut() {
+        let column_index = ((transform.translation.x + 125.0) / BLOCK_SIZE).floor() as usize;
+        let row_index = ((transform.translation.y + 300.0) / BLOCK_SIZE).floor() as usize;
+        if let Some(column_vec) = table.get_mut(row_index) {
+            let _ = std::mem::replace(&mut column_vec[column_index], Some(entity));
+        }
+    }
+    // check under panel is exists?
+    for column_idx in 0..BOARD_WIDTH {
+        for row_idx in 0..BOARD_HEIGHT {
+            if row_idx != 0 {
+                if table[row_idx - 1][column_idx].is_none() {
+                    if let Some(r) = table[row_idx][column_idx] {
+                        for above_row_idx in row_idx..BOARD_HEIGHT {
+                            if let Some(x) = table[above_row_idx][column_idx] {
+                                fall_entity.push(x);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    //
+
+    for en in fall_entity.into_iter() {
+        commands.entity(en).insert(Fall);
     }
 }
 
@@ -1520,7 +1581,7 @@ fn test_check_fall_block() {
         .insert(Fixed);
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
     update_stage.run(&mut world);
-    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 1);
+    assert_eq!(world.query::<(&Block, &FallPrepare)>().iter(&world).len(), 1);
 }
 
 #[test]
@@ -1566,7 +1627,7 @@ fn test_check_fall_block_there_isnot_between_block() {
         .insert(Fixed);
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 3);
     update_stage.run(&mut world);
-    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 1);
+    assert_eq!(world.query::<(&Block, &FallPrepare)>().iter(&world).len(), 1);
 }
 
 #[test]
