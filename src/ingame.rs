@@ -80,21 +80,21 @@ struct Cursor;
 #[derive(Debug)]
 struct Board;
 
-fn setup_assets(mut commands: Commands, mut materials: ResMut<Assets<ColorMaterial>>) {
+fn setup_assets(mut commands: Commands, mut materials: ResMut<Assets<ColorMaterial>>, asset_server: Res<AssetServer>) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
     commands.insert_resource(BlockMaterials {
-        red_material: materials.add(Color::RED.into()),
-        green_material: materials.add(Color::GREEN.into()),
-        blue_material: materials.add(Color::BLUE.into()),
-        yellow_material: materials.add(Color::YELLOW.into()),
-        purple_material: materials.add(Color::PURPLE.into()),
-        indigo_material: materials.add(Color::INDIGO.into()),
+        red_material: materials.add(asset_server.load("images/red_block.png").into()),
+        green_material: materials.add(asset_server.load("images/green_block.png").into()),
+        blue_material: materials.add(asset_server.load("images/blue_block.png").into()),
+        yellow_material: materials.add(asset_server.load("images/yellow_block.png").into()),
+        purple_material: materials.add(asset_server.load("images/purple_block.png").into()),
+        indigo_material: materials.add(asset_server.load("images/indigo_block.png").into()),
     });
     commands.insert_resource(BoardMaterials {
         board_material: materials.add(Color::rgba(1.0, 1.0, 1.0, 0.1).into()),
     });
     commands.insert_resource(CursorMaterials {
-        cursor_material: materials.add(Color::rgba(0.0, 0.0, 0.0, 0.7).into()),
+        cursor_material: materials.add(asset_server.load("images/cursor.png").into()),
     });
 }
 
@@ -632,7 +632,7 @@ fn _check_fall_block(mut commands: Commands, mut block: Query<(Entity, &Transfor
         for row_idx in 0..BOARD_HEIGHT {
             if row_idx != 0 {
                 if table[row_idx - 1][column_idx].is_none() {
-                    if let Some(r) = table[row_idx][column_idx] {
+                    if let Some(_r) = table[row_idx][column_idx] {
                         for above_row_idx in row_idx..BOARD_HEIGHT {
                             if let Some(x) = table[above_row_idx][column_idx] {
                                 fall_entity.push(x);
