@@ -14,6 +14,7 @@ impl Plugin for IngamePlugin {
     fn build(&self, app: &mut AppBuilder) {
         app.add_startup_system(setup_assets.system())
             .add_startup_stage("setup_board", SystemStage::single(setup_board.system()))
+            .add_startup_stage("setup_board_bottom_cover", SystemStage::single(setup_board_bottom_cover.system()))
             .add_startup_stage("setup_block", SystemStage::single(setup_block.system()))
             .add_startup_stage("setup_spawning_block", SystemStage::single(setup_spawning_block.system()))
             .add_startup_stage("setup_cursor", SystemStage::single(setup_cursor.system()))
@@ -69,10 +70,15 @@ struct BlockMaterials {
     yellow_material: Handle<ColorMaterial>,
     purple_material: Handle<ColorMaterial>,
     indigo_material: Handle<ColorMaterial>,
+    black_material: Handle<ColorMaterial>
 }
 
 struct BoardMaterials {
     board_material: Handle<ColorMaterial>,
+}
+
+struct BoardBottomCoverMaterials {
+    board_bottom_cover_material: Handle<ColorMaterial>
 }
 
 struct CursorMaterials {
@@ -84,6 +90,8 @@ struct Cursor;
 
 #[derive(Debug)]
 struct Board;
+
+struct BoardBottomCover;
 
 fn setup_assets(
     mut commands: Commands,
@@ -98,12 +106,16 @@ fn setup_assets(
         yellow_material: materials.add(asset_server.load("images/yellow_block.png").into()),
         purple_material: materials.add(asset_server.load("images/purple_block.png").into()),
         indigo_material: materials.add(asset_server.load("images/indigo_block.png").into()),
+        black_material: materials.add(Color::BLACK.into())
     });
     commands.insert_resource(BoardMaterials {
         board_material: materials.add(Color::rgba(1.0, 1.0, 1.0, 0.1).into()),
     });
     commands.insert_resource(CursorMaterials {
         cursor_material: materials.add(asset_server.load("images/cursor.png").into()),
+    });
+    commands.insert_resource(BoardBottomCoverMaterials {
+        board_bottom_cover_material: materials.add(Color::GRAY.into())
     });
 }
 
@@ -122,6 +134,23 @@ fn setup_board(mut commands: Commands, board_materials: Res<BoardMaterials>) {
             ..Default::default()
         })
         .insert(Board);
+}
+
+fn setup_board_bottom_cover(mut commands: Commands, board_bottom_cover_materials: Res<BoardBottomCoverMaterials>) {
+    commands
+        .spawn_bundle(SpriteBundle {
+            material: board_bottom_cover_materials.board_bottom_cover_material.clone(),
+            sprite: Sprite::new(Vec2::new(
+                BOARD_WIDTH as f32 * BLOCK_SIZE,
+                2.0 * BLOCK_SIZE
+            )),
+            transform: Transform {
+                translation: Vec3::new(0.0, -375.0, 1.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BoardBottomCover);
 }
 
 // TODO: generate from some block patterns.
@@ -1140,6 +1169,7 @@ fn test_setup_block() {
         yellow_material: Handle::<ColorMaterial>::default(),
         purple_material: Handle::<ColorMaterial>::default(),
         indigo_material: Handle::<ColorMaterial>::default(),
+        black_material: Handle::<ColorMaterial>::default(),
     });
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite::new(Vec2::new(
