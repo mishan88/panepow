@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    sprite::collide_aabb::{collide, Collision},
+};
 use bevy_easings::*;
 
 use rand::prelude::*;
@@ -21,8 +24,8 @@ impl Plugin for IngamePlugin {
             .add_system(despawn_block.system())
             .add_system(check_fall_block.system())
             .add_system(fall_upward.system())
-            .add_system(fall_block.system())
-            .add_system(falling_to_fix.system())
+            .add_system(fall_block.system().label("fall_block"))
+            .add_system(stop_fall_block.system().after("fall_block"))
             .add_system(moving_to_fixed.system());
     }
 }
@@ -54,7 +57,6 @@ struct Fixed;
 struct Matched;
 struct FallPrepare;
 struct Fall;
-struct Falling(Timer);
 struct Despawining(Timer);
 
 struct BlockMaterials {
@@ -80,7 +82,11 @@ struct Cursor;
 #[derive(Debug)]
 struct Board;
 
-fn setup_assets(mut commands: Commands, mut materials: ResMut<Assets<ColorMaterial>>, asset_server: Res<AssetServer>) {
+fn setup_assets(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    asset_server: Res<AssetServer>,
+) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
     commands.insert_resource(BlockMaterials {
         red_material: materials.add(asset_server.load("images/red_block.png").into()),
@@ -651,40 +657,38 @@ fn _check_fall_block(mut commands: Commands, mut block: Query<(Entity, &Transfor
 }
 
 // TODO: fix falling time
-fn fall_block(
-    mut commands: Commands,
-    mut block: Query<(Entity, &Transform), (With<Block>, With<Fall>)>,
-) {
-    for (entity, transform) in block.iter_mut() {
-        commands
-            .entity(entity)
-            .insert(transform.ease_to(
-                Transform::from_translation(Vec3::new(
-                    transform.translation.x,
-                    transform.translation.y - BLOCK_SIZE,
-                    transform.translation.z,
-                )),
-                bevy_easings::EaseMethod::Linear,
-                bevy_easings::EasingType::Once {
-                    duration: std::time::Duration::from_millis(150),
-                },
-            ))
-            .remove::<Fall>()
-            .insert(Falling(Timer::from_seconds(0.15, false)));
+fn fall_block(time: Res<Time>, mut block: Query<&mut Transform, (With<Block>, With<Fall>)>) {
+    for mut transform in block.iter_mut() {
+        transform.translation.y -= 400.0 * time.delta_seconds();
     }
 }
 
-fn falling_to_fix(
+fn stop_fall_block(
     mut commands: Commands,
-    time: Res<Time>,
-    mut block: Query<(Entity, &mut Falling), (With<Block>, With<Falling>)>,
+    mut fall_block: Query<(Entity, &mut Transform, &Sprite), (With<Block>, With<Fall>)>,
+    other_block: Query<(&Transform, &Sprite), (With<Block>, Without<Fall>)>,
 ) {
-    for (entity, mut falling) in block.iter_mut() {
-        falling
-            .0
-            .tick(Duration::from_secs_f32(time.delta_seconds()));
-        if falling.0.just_finished() {
-            commands.entity(entity).remove::<Falling>().insert(Fixed);
+    for (fall_block_entity, mut fall_block_transform, fall_block_sprite) in fall_block.iter_mut() {
+        for (other_block_transform, other_block_sprite) in other_block.iter() {
+            if let Some(collision) = collide(
+                fall_block_transform.translation,
+                fall_block_sprite.size,
+                other_block_transform.translation,
+                other_block_sprite.size,
+            ) {
+                match collision {
+                    Collision::Top => {
+                        commands
+                            .entity(fall_block_entity)
+                            .insert(Fixed)
+                            .remove::<Fall>();
+                        // TODO: some animation
+                        fall_block_transform.translation.y =
+                            other_block_transform.translation.y + BLOCK_SIZE;
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 }
@@ -1834,4 +1838,42 @@ fn test_check_fall_block_bottom_block_not_fall() {
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+}
+
+#[ignore = "how to collide?"]
+#[test]
+fn test_stop_fall_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(stop_fall_block.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 99.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fall);
+    world
+        .spawn()
+        .insert(Block)
+        .insert(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 50.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+
+    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 1);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 0);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
 }
