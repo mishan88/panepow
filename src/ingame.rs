@@ -14,9 +14,15 @@ impl Plugin for IngamePlugin {
     fn build(&self, app: &mut AppBuilder) {
         app.add_startup_system(setup_assets.system())
             .add_startup_stage("setup_board", SystemStage::single(setup_board.system()))
-            .add_startup_stage("setup_board_bottom_cover", SystemStage::single(setup_board_bottom_cover.system()))
+            .add_startup_stage(
+                "setup_board_bottom_cover",
+                SystemStage::single(setup_board_bottom_cover.system()),
+            )
             .add_startup_stage("setup_block", SystemStage::single(setup_block.system()))
-            .add_startup_stage("setup_spawning_block", SystemStage::single(setup_spawning_block.system()))
+            .add_startup_stage(
+                "setup_spawning_block",
+                SystemStage::single(setup_spawning_block.system()),
+            )
             .add_startup_stage("setup_cursor", SystemStage::single(setup_cursor.system()))
             .add_system(move_cursor.system())
             .add_system(move_tag_block.system())
@@ -70,7 +76,7 @@ struct BlockMaterials {
     yellow_material: Handle<ColorMaterial>,
     purple_material: Handle<ColorMaterial>,
     indigo_material: Handle<ColorMaterial>,
-    black_material: Handle<ColorMaterial>
+    black_material: Handle<ColorMaterial>,
 }
 
 struct BoardMaterials {
@@ -78,7 +84,7 @@ struct BoardMaterials {
 }
 
 struct BoardBottomCoverMaterials {
-    board_bottom_cover_material: Handle<ColorMaterial>
+    board_bottom_cover_material: Handle<ColorMaterial>,
 }
 
 struct CursorMaterials {
@@ -106,7 +112,7 @@ fn setup_assets(
         yellow_material: materials.add(asset_server.load("images/yellow_block.png").into()),
         purple_material: materials.add(asset_server.load("images/purple_block.png").into()),
         indigo_material: materials.add(asset_server.load("images/indigo_block.png").into()),
-        black_material: materials.add(Color::BLACK.into())
+        black_material: materials.add(Color::BLACK.into()),
     });
     commands.insert_resource(BoardMaterials {
         board_material: materials.add(Color::rgba(1.0, 1.0, 1.0, 0.1).into()),
@@ -115,7 +121,7 @@ fn setup_assets(
         cursor_material: materials.add(asset_server.load("images/cursor.png").into()),
     });
     commands.insert_resource(BoardBottomCoverMaterials {
-        board_bottom_cover_material: materials.add(Color::GRAY.into())
+        board_bottom_cover_material: materials.add(Color::GRAY.into()),
     });
 }
 
@@ -136,14 +142,16 @@ fn setup_board(mut commands: Commands, board_materials: Res<BoardMaterials>) {
         .insert(Board);
 }
 
-fn setup_board_bottom_cover(mut commands: Commands, board_bottom_cover_materials: Res<BoardBottomCoverMaterials>) {
+fn setup_board_bottom_cover(
+    mut commands: Commands,
+    board_bottom_cover_materials: Res<BoardBottomCoverMaterials>,
+) {
     commands
         .spawn_bundle(SpriteBundle {
-            material: board_bottom_cover_materials.board_bottom_cover_material.clone(),
-            sprite: Sprite::new(Vec2::new(
-                BOARD_WIDTH as f32 * BLOCK_SIZE,
-                2.0 * BLOCK_SIZE
-            )),
+            material: board_bottom_cover_materials
+                .board_bottom_cover_material
+                .clone(),
+            sprite: Sprite::new(Vec2::new(BOARD_WIDTH as f32 * BLOCK_SIZE, 2.0 * BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(0.0, -375.0, 1.0),
                 ..Default::default()
@@ -407,7 +415,6 @@ fn setup_spawning_block(
             }
         }
     }
-
 }
 
 fn setup_cursor(
@@ -452,41 +459,82 @@ fn move_cursor(
     }
 }
 
+// TODO: if there is no fixed block -> check block and cancel tag.
 fn move_tag_block(
     keyboard_input: Res<Input<KeyCode>>,
     mut commands: Commands,
     cursor: Query<&Transform, With<Cursor>>,
-    mut block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
+    mut block: Query<(Entity, &Transform, Option<&Fixed>), With<Block>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Space) {
         if let Ok(cursor_transform) = cursor.single() {
             let x = cursor_transform.translation.x;
             let left_x = x - BLOCK_SIZE / 2.0;
             let right_x = x + BLOCK_SIZE / 2.0;
-            for (block_entity, block_transform) in block.iter_mut() {
+            let mut right_block = (None, None);
+            let mut left_block = (None, None);
+            let mut left_collide = false;
+            let mut right_collide = false;
+
+            for (block_entity, block_transform, fixed) in block.iter_mut() {
                 if (block_transform.translation.y - cursor_transform.translation.y).abs()
                     < f32::EPSILON
                 {
-                    // left -> right
+                    // left target
                     if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
-                        commands
-                            .entity(block_entity)
-                            .remove::<Fixed>()
-                            .insert(Move(right_x));
+                        left_block = (Some(block_entity), fixed);
                     }
-                    // right -> left
+                    // right target
                     if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
-                        commands
-                            .entity(block_entity)
-                            .remove::<Fixed>()
-                            .insert(Move(left_x));
+                        right_block = (Some(block_entity), fixed);
+                    }
+                } else {
+                    if (block_transform.translation.y - cursor_transform.translation.y).abs()
+                        < BLOCK_SIZE
+                    {
+                        // left collision exists
+                        if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
+                            left_collide = true;
+                        }
+                        // right collision exsists
+                        else if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
+                            right_collide = true;
+                        }
                     }
                 }
+            }
+            match (right_block, right_collide, left_block, left_collide) {
+                // both exist and fixed -> remove fixed and insert move
+                ((Some(right_entity), Some(_)), _, (Some(left_entity), Some(_)), _) => {
+                    commands
+                        .entity(right_entity)
+                        .remove::<Fixed>()
+                        .insert(Move(left_x));
+                    commands
+                        .entity(left_entity)
+                        .remove::<Fixed>()
+                        .insert(Move(right_x));
+                }
+                // one exists and fixed && no collide -> remove fixed and insert move
+                ((Some(right_entity), Some(_)), _, (None, None), false) => {
+                    commands
+                        .entity(right_entity)
+                        .remove::<Fixed>()
+                        .insert(Move(left_x));
+                }
+                ((None, None), false, (Some(left_entity), Some(_)), _) => {
+                    commands
+                        .entity(left_entity)
+                        .remove::<Fixed>()
+                        .insert(Move(right_x));
+                }
+                // no fixed
+                _ => {}
             }
         }
     }
     if keyboard_input.just_pressed(KeyCode::A) {
-        for (block_entity, transform) in block.iter() {
+        for (block_entity, transform, _fixed) in block.iter() {
             println!("{}: {}", block_entity.id(), transform.translation);
         }
     }
@@ -1195,7 +1243,7 @@ fn test_setup_block() {
 }
 
 #[test]
-fn test_move_tag_block() {
+fn test_move_tag_block_both_fix() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(move_tag_block.system());
@@ -1256,6 +1304,231 @@ fn test_move_tag_block() {
     world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 2);
+}
+
+#[test]
+fn test_move_tag_block_left_one_fix() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(move_tag_block.system());
+
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(
+            BOARD_WIDTH as f32 * BLOCK_SIZE,
+            BOARD_HEIGHT as f32 * BLOCK_SIZE,
+        )),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Space);
+    world.insert_resource(input);
+
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 1);
+}
+
+#[test]
+fn test_move_tag_block_right_one_fix() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(move_tag_block.system());
+
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(
+            BOARD_WIDTH as f32 * BLOCK_SIZE,
+            BOARD_HEIGHT as f32 * BLOCK_SIZE,
+        )),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Space);
+    world.insert_resource(input);
+
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 1);
+}
+
+#[test]
+fn test_move_tag_block_there_is_collide() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(move_tag_block.system());
+
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(
+            BOARD_WIDTH as f32 * BLOCK_SIZE,
+            BOARD_HEIGHT as f32 * BLOCK_SIZE,
+        )),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 1.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Red);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Space);
+    world.insert_resource(input);
+
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_move_tag_block_not_fixed_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(move_tag_block.system());
+
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(
+            BOARD_WIDTH as f32 * BLOCK_SIZE,
+            BOARD_HEIGHT as f32 * BLOCK_SIZE,
+        )),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Red)
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(BlockColor::Blue);
+
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Space);
+    world.insert_resource(input);
+
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+
+    update_stage.run(&mut world);
+    world.get_resource_mut::<Input<KeyCode>>().unwrap();
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+    assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 0);
 }
 
 #[test]
