@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::VecDeque, time::Duration};
 
 use bevy::{
     prelude::*,
@@ -233,119 +233,47 @@ fn setup_spawning_block(
         let relative_x = board_transform.translation.x - sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
         let bottom_y = board_transform.translation.y - sprite.size.y / 2.0 - BLOCK_SIZE / 2.0;
         let mut rng = rand::thread_rng();
-        for column in 0..6 {
-            for row in 0..2 {
-                let block = match rng.gen_range(0..5) {
-                    0 => commands
-                        .spawn_bundle(SpriteBundle {
-                            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                            material: block_materials.red_material.clone(),
-                            transform: Transform {
-                                translation: Vec3::new(
-                                    relative_x + BLOCK_SIZE * column as f32,
-                                    bottom_y - BLOCK_SIZE * row as f32,
-                                    0.0,
-                                ),
-                                ..Default::default()
-                            },
+        let mut block_colors = vec![
+            (BlockColor::Red, block_materials.red_material.clone()),
+            (BlockColor::Green, block_materials.green_material.clone()),
+            (BlockColor::Blue, block_materials.blue_material.clone()),
+            (BlockColor::Yellow, block_materials.yellow_material.clone()),
+            (BlockColor::Purple, block_materials.purple_material.clone()),
+            // (BlockColor::Indigo, block_materials.indigo_material.clone()),
+        ];
+        block_colors.shuffle(&mut rng);
+        for row_idx in 0..2 {
+            let mut previous_block_queue = VecDeque::with_capacity(2);
+            for column_idx in 0..6 {
+                let number = rng.gen_range(0..block_colors.len());
+                let block = commands
+                    .spawn_bundle(SpriteBundle {
+                        sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                        material: block_colors[number].1.clone(),
+                        transform: Transform {
+                            translation: Vec3::new(
+                                relative_x + BLOCK_SIZE * column_idx as f32,
+                                bottom_y - BLOCK_SIZE * row_idx as f32,
+                                0.0,
+                            ),
                             ..Default::default()
-                        })
-                        .insert(Block)
-                        .insert(BlockColor::Red)
-                        .insert(Spawning)
-                        .id(),
-                    1 => commands
-                        .spawn_bundle(SpriteBundle {
-                            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                            material: block_materials.green_material.clone(),
-                            transform: Transform {
-                                translation: Vec3::new(
-                                    relative_x + BLOCK_SIZE * column as f32,
-                                    bottom_y - BLOCK_SIZE * row as f32,
-                                    0.0,
-                                ),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        })
-                        .insert(Block)
-                        .insert(BlockColor::Green)
-                        .insert(Spawning)
-                        .id(),
-                    2 => commands
-                        .spawn_bundle(SpriteBundle {
-                            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                            material: block_materials.blue_material.clone(),
-                            transform: Transform {
-                                translation: Vec3::new(
-                                    relative_x + BLOCK_SIZE * column as f32,
-                                    bottom_y - BLOCK_SIZE * row as f32,
-                                    0.0,
-                                ),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        })
-                        .insert(Block)
-                        .insert(BlockColor::Blue)
-                        .insert(Spawning)
-                        .id(),
-                    3 => commands
-                        .spawn_bundle(SpriteBundle {
-                            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                            material: block_materials.yellow_material.clone(),
-                            transform: Transform {
-                                translation: Vec3::new(
-                                    relative_x + BLOCK_SIZE * column as f32,
-                                    bottom_y - BLOCK_SIZE * row as f32,
-                                    0.0,
-                                ),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        })
-                        .insert(Block)
-                        .insert(BlockColor::Yellow)
-                        .insert(Spawning)
-                        .id(),
-                    4 => commands
-                        .spawn_bundle(SpriteBundle {
-                            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                            material: block_materials.purple_material.clone(),
-                            transform: Transform {
-                                translation: Vec3::new(
-                                    relative_x + BLOCK_SIZE * column as f32,
-                                    bottom_y - BLOCK_SIZE * row as f32,
-                                    0.0,
-                                ),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        })
-                        .insert(Block)
-                        .insert(BlockColor::Purple)
-                        .insert(Spawning)
-                        .id(),
-                    _ => commands
-                        .spawn_bundle(SpriteBundle {
-                            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                            material: block_materials.indigo_material.clone(),
-                            transform: Transform {
-                                translation: Vec3::new(
-                                    relative_x + BLOCK_SIZE * column as f32,
-                                    bottom_y - BLOCK_SIZE * row as f32,
-                                    0.0,
-                                ),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        })
-                        .insert(Block)
-                        .insert(BlockColor::Indigo)
-                        .insert(Spawning)
-                        .id(),
-                };
+                        },
+                        ..Default::default()
+                    })
+                    .insert(Block)
+                    .insert(block_colors[number].0)
+                    .insert(Spawning)
+                    .id();
                 commands.entity(board_entity).push_children(&[block]);
+                let tmp_remove_block = Some(block_colors.remove(number));
+                previous_block_queue.push_back(tmp_remove_block);
+                if previous_block_queue.len() > 1 {
+                    if let Some(tmp_insert_block) = previous_block_queue.pop_front() {
+                        if let Some(back_color_block) = tmp_insert_block {
+                            block_colors.push(back_color_block);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1174,6 +1102,35 @@ fn test_setup_block() {
     );
     assert!(world.is_resource_added::<BlockMaterials>());
     assert!(world.query::<&Block>().iter(&world).len() > 5);
+}
+
+#[test]
+fn test_setup_spawning_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(setup_spawning_block.system());
+    world.insert_resource(BlockMaterials {
+        red_material: Handle::<ColorMaterial>::default(),
+        green_material: Handle::<ColorMaterial>::default(),
+        blue_material: Handle::<ColorMaterial>::default(),
+        yellow_material: Handle::<ColorMaterial>::default(),
+        purple_material: Handle::<ColorMaterial>::default(),
+        indigo_material: Handle::<ColorMaterial>::default(),
+        black_material: Handle::<ColorMaterial>::default(),
+    });
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(
+            BOARD_WIDTH as f32 * BLOCK_SIZE,
+            BOARD_HEIGHT as f32 * BLOCK_SIZE,
+        )),
+        transform: Transform {
+            translation: Vec3::ZERO,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 12);
 }
 
 #[test]
