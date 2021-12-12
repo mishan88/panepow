@@ -268,10 +268,8 @@ fn setup_spawning_block(
                 let tmp_remove_block = Some(block_colors.remove(number));
                 previous_block_queue.push_back(tmp_remove_block);
                 if previous_block_queue.len() > 1 {
-                    if let Some(tmp_insert_block) = previous_block_queue.pop_front() {
-                        if let Some(back_color_block) = tmp_insert_block {
-                            block_colors.push(back_color_block);
-                        }
+                    if let Some(Some(back_color_block)) = previous_block_queue.pop_front() {
+                        block_colors.push(back_color_block);
                     }
                 }
             }
@@ -350,18 +348,16 @@ fn move_tag_block(
                     if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
                         right_block = (Some(block_entity), fixed);
                     }
-                } else {
-                    if (block_transform.translation.y - cursor_transform.translation.y).abs()
-                        < BLOCK_SIZE
-                    {
-                        // left collision exists
-                        if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
-                            left_collide = true;
-                        }
-                        // right collision exsists
-                        else if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
-                            right_collide = true;
-                        }
+                } else if (block_transform.translation.y - cursor_transform.translation.y).abs()
+                    < BLOCK_SIZE
+                {
+                    // left collision exists
+                    if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
+                        left_collide = true;
+                    }
+                    // right collision exsists
+                    else if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
+                        right_collide = true;
                     }
                 }
             }
@@ -691,41 +687,6 @@ fn fall_upward(
     }
 }
 
-//
-fn _check_fall_block(mut commands: Commands, mut block: Query<(Entity, &Transform), With<Block>>) {
-    let mut table: Vec<Vec<Option<Entity>>> = vec![vec![None; BOARD_WIDTH]; BOARD_HEIGHT];
-    let mut fall_entity: Vec<Entity> = Vec::new();
-    // create match table
-    for (entity, transform) in block.iter_mut() {
-        let column_index = ((transform.translation.x + 125.0) / BLOCK_SIZE).floor() as usize;
-        let row_index = ((transform.translation.y + 300.0) / BLOCK_SIZE).floor() as usize;
-        if let Some(column_vec) = table.get_mut(row_index) {
-            let _ = std::mem::replace(&mut column_vec[column_index], Some(entity));
-        }
-    }
-    // check under panel is exists?
-    for column_idx in 0..BOARD_WIDTH {
-        for row_idx in 0..BOARD_HEIGHT {
-            if row_idx != 0 {
-                if table[row_idx - 1][column_idx].is_none() {
-                    if let Some(_r) = table[row_idx][column_idx] {
-                        for above_row_idx in row_idx..BOARD_HEIGHT {
-                            if let Some(x) = table[above_row_idx][column_idx] {
-                                fall_entity.push(x);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    //
-
-    for en in fall_entity.into_iter() {
-        commands.entity(en).insert(Fall);
-    }
-}
-
 // TODO: fix falling time
 fn fall_block(time: Res<Time>, mut block: Query<&mut Transform, (With<Block>, With<Fall>)>) {
     for mut transform in block.iter_mut() {
@@ -740,24 +701,19 @@ fn stop_fall_block(
 ) {
     for (fall_block_entity, mut fall_block_transform, fall_block_sprite) in fall_block.iter_mut() {
         for (other_block_transform, other_block_sprite) in other_block.iter() {
-            if let Some(collision) = collide(
+            if let Some(Collision::Top) = collide(
                 fall_block_transform.translation,
                 fall_block_sprite.size,
                 other_block_transform.translation,
                 other_block_sprite.size,
             ) {
-                match collision {
-                    Collision::Top => {
-                        commands
-                            .entity(fall_block_entity)
-                            .insert(Fixed)
-                            .remove::<Fall>();
-                        // TODO: some animation
-                        fall_block_transform.translation.y =
-                            other_block_transform.translation.y + BLOCK_SIZE;
-                    }
-                    _ => {}
-                }
+                commands
+                    .entity(fall_block_entity)
+                    .insert(Fixed)
+                    .remove::<Fall>();
+                // TODO: some animation
+                fall_block_transform.translation.y =
+                    other_block_transform.translation.y + BLOCK_SIZE;
             }
         }
     }
