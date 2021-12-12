@@ -25,16 +25,26 @@ impl Plugin for IngamePlugin {
             )
             .add_startup_stage("setup_cursor", SystemStage::single(setup_cursor.system()))
             .add_system(move_cursor.system())
-            .add_system(move_tag_block.system())
-            .add_system(move_block.system())
             .add_system(match_block.system())
             .add_system(prepare_despawn_block.system())
             .add_system(despawn_block.system())
-            .add_system(check_fall_block.system())
-            .add_system(fall_upward.system())
-            .add_system(fall_block.system().label("fall_block"))
-            .add_system(stop_fall_block.system().after("fall_block"))
-            .add_system(moving_to_fixed.system());
+            .add_system_set(
+                SystemSet::new()
+                    .label("move_set")
+                    .before("fall_set")
+                    .with_system(move_tag_block.system())
+                    .with_system(move_block.system())
+                    .with_system(moving_to_fixed.system()),
+            )
+            .add_system_set(
+                SystemSet::new()
+                    .label("fall_set")
+                    .with_system(check_fall_block.system())
+                    .with_system(fall_upward.system())
+                    .with_system(fall_block.system().label("fall_block"))
+                    .with_system(stop_fall_block.system().after("fall_block")),
+            )
+            .add_system(auto_liftup.system().after("fall_set"));
     }
 }
 
@@ -338,25 +348,25 @@ fn move_tag_block(
 
             for (block_entity, block_transform, fixed) in block.iter_mut() {
                 if (block_transform.translation.y - cursor_transform.translation.y).abs()
-                    < f32::EPSILON
+                    < BLOCK_SIZE / 2.0
                 {
                     // left target
-                    if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
+                    if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
                         left_block = (Some(block_entity), fixed);
                     }
                     // right target
-                    if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
+                    if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
                         right_block = (Some(block_entity), fixed);
                     }
                 } else if (block_transform.translation.y - cursor_transform.translation.y).abs()
                     < BLOCK_SIZE
                 {
                     // left collision exists
-                    if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
+                    if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
                         left_collide = true;
                     }
                     // right collision exsists
-                    else if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
+                    else if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
                         right_collide = true;
                     }
                 }
@@ -392,8 +402,14 @@ fn move_tag_block(
         }
     }
     if keyboard_input.just_pressed(KeyCode::A) {
-        for (block_entity, transform, _fixed) in block.iter() {
-            println!("{}: {}", block_entity.id(), transform.translation);
+        println!("-------------------");
+        for (block_entity, transform, fixed) in block.iter() {
+            println!(
+                "{}: {}: {:?}",
+                block_entity.id(),
+                transform.translation,
+                fixed
+            );
         }
     }
 }
@@ -453,8 +469,9 @@ fn match_block(
         for (other_entity, other_transform, other_block_color) in other_block.iter_mut() {
             // left next to
             if (transform.translation.x - other_transform.translation.x - BLOCK_SIZE).abs()
-                < f32::EPSILON
-                && (transform.translation.y - other_transform.translation.y).abs() < f32::EPSILON
+                < BLOCK_SIZE / 2.0
+                && (transform.translation.y - other_transform.translation.y).abs()
+                    < BLOCK_SIZE / 2.0
                 && block_color == other_block_color
             {
                 row_matched_entities.push(entity);
@@ -462,8 +479,9 @@ fn match_block(
             }
             // right next to
             if (transform.translation.x - other_transform.translation.x + BLOCK_SIZE).abs()
-                < f32::EPSILON
-                && (transform.translation.y - other_transform.translation.y).abs() < f32::EPSILON
+                < BLOCK_SIZE / 2.0
+                && (transform.translation.y - other_transform.translation.y).abs()
+                    < BLOCK_SIZE / 2.0
                 && block_color == other_block_color
             {
                 row_matched_entities.push(entity);
@@ -471,8 +489,9 @@ fn match_block(
             }
             // top next to
             if (transform.translation.y - other_transform.translation.y + BLOCK_SIZE).abs()
-                < f32::EPSILON
-                && (transform.translation.x - other_transform.translation.x).abs() < f32::EPSILON
+                < BLOCK_SIZE / 2.0
+                && (transform.translation.x - other_transform.translation.x).abs()
+                    < BLOCK_SIZE / 2.0
                 && block_color == other_block_color
             {
                 column_matched_entities.push(entity);
@@ -480,8 +499,9 @@ fn match_block(
             }
             // down next to
             if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
-                < f32::EPSILON
-                && (transform.translation.x - other_transform.translation.x).abs() < f32::EPSILON
+                < BLOCK_SIZE / 2.0
+                && (transform.translation.x - other_transform.translation.x).abs()
+                    < BLOCK_SIZE / 2.0
                 && block_color == other_block_color
             {
                 column_matched_entities.push(entity);
@@ -649,7 +669,7 @@ fn check_fall_block(
             let mut is_exist = false;
             for other_transform in other_block.iter_mut() {
                 if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
-                    < f32::EPSILON
+                    < BLOCK_SIZE / 2.0
                     && (transform.translation.x - other_transform.translation.x).abs() < BLOCK_SIZE
                 {
                     is_exist = true;
@@ -715,6 +735,23 @@ fn stop_fall_block(
                 fall_block_transform.translation.y =
                     other_block_transform.translation.y + BLOCK_SIZE;
             }
+        }
+    }
+}
+
+fn auto_liftup(
+    time: Res<Time>,
+    not_fixed_block: Query<Entity, (Without<Fixed>, Without<Spawning>, With<Block>)>,
+    mut target: Query<&mut Transform, Or<(With<Cursor>, With<Block>)>>,
+) {
+    let mut is_notfixed_block_exists = false;
+    for _ in not_fixed_block.single() {
+        is_notfixed_block_exists = true;
+        break;
+    }
+    if !is_notfixed_block_exists {
+        for mut transform in target.iter_mut() {
+            transform.translation.y += time.delta_seconds() * 10.0;
         }
     }
 }
