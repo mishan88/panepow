@@ -2274,7 +2274,6 @@ fn test_check_fall_block_bottom_block_not_fall() {
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 }
 
-#[ignore = "how to collide?"]
 #[test]
 fn test_stop_fall_block() {
     let mut world = World::default();
@@ -2283,7 +2282,7 @@ fn test_stop_fall_block() {
     world
         .spawn()
         .insert(Block)
-        .insert(SpriteBundle {
+        .insert_bundle(SpriteBundle {
             sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 99.0, 0.0),
@@ -2295,7 +2294,7 @@ fn test_stop_fall_block() {
     world
         .spawn()
         .insert(Block)
-        .insert(SpriteBundle {
+        .insert_bundle(SpriteBundle {
             sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 50.0, 0.0),
