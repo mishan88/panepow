@@ -745,9 +745,8 @@ fn auto_liftup(
     mut target: Query<&mut Transform, Or<(With<Cursor>, With<Block>)>>,
 ) {
     let mut is_notfixed_block_exists = false;
-    for _ in not_fixed_block.single() {
+    for _ in not_fixed_block.iter() {
         is_notfixed_block_exists = true;
-        break;
     }
     if !is_notfixed_block_exists {
         for mut transform in target.iter_mut() {
