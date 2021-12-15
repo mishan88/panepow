@@ -33,12 +33,14 @@ impl Plugin for IngamePlugin {
                     .label("move_set")
                     .before("fall_set")
                     .with_system(move_tag_block.system())
+                    .with_system(custom_ease_system::<Moving>.system())
                     .with_system(move_block.system())
                     .with_system(moving_to_fixed.system()),
             )
             .add_system_set(
                 SystemSet::new()
                     .label("fall_set")
+                    .after("move_set")
                     .with_system(check_fall_block.system())
                     .with_system(fall_upward.system())
                     .with_system(fall_block.system().label("fall_block"))
@@ -70,7 +72,16 @@ struct Spawning;
 #[derive(Debug)]
 struct Move(f32);
 
-struct Moving(Timer);
+#[derive(Default, Debug)]
+struct Moving(f32);
+
+impl Lerp for Moving {
+    type Scalar = f32;
+    fn lerp(&self, other: &Self, scalar: &Self::Scalar) -> Self {
+        // std::f32::lerp is unstable
+        Self(self.0 + (other.0 - self.0) * scalar)
+    }
+}
 
 #[derive(Debug)]
 struct Fixed;
@@ -346,6 +357,7 @@ fn move_tag_block(
             let mut left_collide = false;
             let mut right_collide = false;
 
+            // TODO: loosen collide conditions.
             for (block_entity, block_transform, fixed) in block.iter_mut() {
                 if (block_transform.translation.y - cursor_transform.translation.y).abs()
                     < BLOCK_SIZE / 2.0
@@ -414,34 +426,46 @@ fn move_tag_block(
     }
 }
 
+// Transform easing isn't match, because y-axis must be defined.
 fn move_block(
     mut commands: Commands,
     mut block: Query<(Entity, &Transform, &Move), (With<Block>, With<Move>)>,
 ) {
-    for (entity, transform, target) in block.iter_mut() {
+    for (entity, transform, move_target) in block.iter_mut() {
         commands
             .entity(entity)
-            .insert(transform.ease_to(
-                Transform::from_translation(Vec3::new(target.0, transform.translation.y, 0.0)),
-                bevy_easings::EaseMethod::Linear,
-                bevy_easings::EasingType::Once {
-                    duration: std::time::Duration::from_millis(60),
+            .insert(Moving(transform.translation.x))
+            .insert(Moving(transform.translation.x).ease_to(
+                Moving(move_target.0),
+                EaseMethod::Linear,
+                EasingType::Once {
+                    duration: std::time::Duration::from_secs_f32(0.06),
                 },
             ))
-            .remove::<Move>()
-            .insert(Moving(Timer::from_seconds(0.06, false)));
+            .remove::<Move>();
     }
 }
 
 fn moving_to_fixed(
     mut commands: Commands,
-    time: Res<Time>,
-    mut block: Query<(Entity, &mut Moving), (With<Block>, With<Moving>)>,
+    mut block: Query<
+        (
+            Entity,
+            &mut Transform,
+            &Moving,
+            Option<&EasingComponent<Moving>>,
+        ),
+        (With<Block>, With<Moving>),
+    >,
 ) {
-    for (entity, mut moving) in block.iter_mut() {
-        moving.0.tick(Duration::from_secs_f32(time.delta_seconds()));
-        if moving.0.just_finished() {
-            commands.entity(entity).remove::<Moving>().insert(Fixed);
+    for (entity, mut transform, moving, easing_component) in block.iter_mut() {
+        match easing_component {
+            Some(_) => {
+                transform.translation.x = moving.0;
+            }
+            None => {
+                commands.entity(entity).remove::<Moving>().insert(Fixed);
+            }
         }
     }
 }
@@ -695,7 +719,7 @@ fn fall_upward(
         for (fixed_entity, fixed_transform) in fixed_block.iter_mut() {
             if fallprepare_transform.translation.y < fixed_transform.translation.y
                 && (fallprepare_transform.translation.x - fixed_transform.translation.x).abs()
-                    < f32::EPSILON
+                    < BLOCK_SIZE / 2.0
             {
                 commands.entity(fixed_entity).remove::<Fixed>().insert(Fall);
             }
@@ -741,7 +765,16 @@ fn stop_fall_block(
 
 fn auto_liftup(
     time: Res<Time>,
-    not_fixed_block: Query<Entity, (Without<Fixed>, Without<Spawning>, With<Block>)>,
+    not_fixed_block: Query<
+        Entity,
+        (
+            Without<Fixed>,
+            Without<Spawning>,
+            Without<Moving>,
+            Without<Move>,
+            With<Block>,
+        ),
+    >,
     mut target: Query<&mut Transform, Or<(With<Cursor>, With<Block>)>>,
 ) {
     let mut is_notfixed_block_exists = false;
