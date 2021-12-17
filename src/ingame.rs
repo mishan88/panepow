@@ -34,8 +34,8 @@ impl Plugin for IngamePlugin {
                     .before("fall_set")
                     .with_system(move_tag_block.system())
                     .with_system(custom_ease_system::<Moving>.system())
-                    .with_system(move_block.system())
-                    .with_system(moving_to_fixed.system()),
+                    .with_system(move_block.system().label("move_block"))
+                    .with_system(moving_to_fixed.system().after("move_block")),
             )
             .add_system_set(
                 SystemSet::new()
@@ -46,7 +46,14 @@ impl Plugin for IngamePlugin {
                     .with_system(fall_block.system().label("fall_block"))
                     .with_system(stop_fall_block.system().after("fall_block")),
             )
-            .add_system(auto_liftup.system().after("fall_set"));
+            .add_system(auto_liftup.system().after("fall_set"))
+            .add_system_set(
+                SystemSet::new()
+                    .label("spawning_set")
+                    .with_system(spawning_to_fixed.system())
+                    .with_system(bottom_down.system().label("bottom_down"))
+                    .with_system(generate_spawning_block.system().before("bottom_down")),
+            );
     }
 }
 
@@ -90,6 +97,8 @@ struct FallPrepare;
 struct Fall;
 struct Despawining(Timer);
 
+struct Bottom;
+
 struct BlockMaterials {
     red_material: Handle<ColorMaterial>,
     green_material: Handle<ColorMaterial>,
@@ -110,6 +119,10 @@ struct BoardBottomCoverMaterials {
 
 struct CursorMaterials {
     cursor_material: Handle<ColorMaterial>,
+}
+
+struct BottomMaterials {
+    bottom_material: Handle<ColorMaterial>,
 }
 
 #[derive(Debug)]
@@ -143,6 +156,9 @@ fn setup_assets(
     });
     commands.insert_resource(BoardBottomCoverMaterials {
         board_bottom_cover_material: materials.add(Color::GRAY.into()),
+    });
+    commands.insert_resource(BottomMaterials {
+        bottom_material: materials.add(Color::rgba(0.0, 0.0, 0.0, 0.7).into()),
     });
 }
 
@@ -248,6 +264,7 @@ fn setup_block(
 fn setup_spawning_block(
     mut commands: Commands,
     block_materials: Res<BlockMaterials>,
+    bottom_materials: Res<BottomMaterials>,
     board: Query<(Entity, &Transform, &Sprite), With<Board>>,
 ) {
     for (board_entity, board_transform, sprite) in board.iter() {
@@ -295,6 +312,19 @@ fn setup_spawning_block(
                 }
             }
         }
+        let bottom = commands
+            .spawn_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE * BOARD_WIDTH as f32, BLOCK_SIZE)),
+                material: bottom_materials.bottom_material.clone(),
+                transform: Transform {
+                    translation: Vec3::new(0.0, bottom_y, 1.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(Bottom)
+            .id();
+        commands.entity(board_entity).push_children(&[bottom]);
     }
 }
 
@@ -371,7 +401,7 @@ fn move_tag_block(
                         right_block = (Some(block_entity), fixed);
                     }
                 } else if (block_transform.translation.y - cursor_transform.translation.y).abs()
-                    < BLOCK_SIZE
+                    < BLOCK_SIZE - 1.0
                 {
                     // left collision exists
                     if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
@@ -439,7 +469,7 @@ fn move_block(
                 Moving(move_target.0),
                 EaseMethod::Linear,
                 EasingType::Once {
-                    duration: std::time::Duration::from_secs_f32(0.06),
+                    duration: std::time::Duration::from_secs_f32(0.04),
                 },
             ))
             .remove::<Move>();
@@ -734,7 +764,7 @@ fn fall_upward(
 // TODO: fix falling time
 fn fall_block(time: Res<Time>, mut block: Query<&mut Transform, (With<Block>, With<Fall>)>) {
     for mut transform in block.iter_mut() {
-        transform.translation.y -= 400.0 * time.delta_seconds();
+        transform.translation.y -= 600.0 * time.delta_seconds();
     }
 }
 
@@ -775,7 +805,7 @@ fn auto_liftup(
             With<Block>,
         ),
     >,
-    mut target: Query<&mut Transform, Or<(With<Cursor>, With<Block>)>>,
+    mut target: Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
 ) {
     let mut is_notfixed_block_exists = false;
     for _ in not_fixed_block.iter() {
@@ -784,6 +814,83 @@ fn auto_liftup(
     if !is_notfixed_block_exists {
         for mut transform in target.iter_mut() {
             transform.translation.y += time.delta_seconds() * 10.0;
+        }
+    }
+}
+
+fn spawning_to_fixed(
+    mut commands: Commands,
+    spawning_block: Query<(Entity, &Transform), (With<Spawning>, With<Block>)>,
+) {
+    for (entity, transform) in spawning_block.iter() {
+        if transform.translation.y > -300.0 {
+            commands.entity(entity).remove::<Spawning>().insert(Fixed);
+        }
+    }
+}
+
+fn bottom_down(mut bottom: Query<&mut Transform, With<Bottom>>) {
+    for mut transform in bottom.iter_mut() {
+        if transform.translation.y >= BLOCK_SIZE * -6.0 {
+            transform.translation.y = BLOCK_SIZE * -7.0;
+        }
+    }
+}
+
+fn generate_spawning_block(
+    mut commands: Commands,
+    block_materials: Res<BlockMaterials>,
+    board: Query<(Entity, &Transform, &Sprite), With<Board>>,
+    bottom: Query<&Transform, With<Bottom>>,
+) {
+    for (board_entity, board_transform, sprite) in board.iter() {
+        for transform in bottom.iter() {
+            if transform.translation.y >= BLOCK_SIZE * -6.0 {
+                let relative_x =
+                    board_transform.translation.x - sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
+                let bottom_y =
+                    board_transform.translation.y - sprite.size.y / 2.0 - BLOCK_SIZE / 2.0;
+                let mut rng = rand::thread_rng();
+                let mut block_colors = vec![
+                    (BlockColor::Red, block_materials.red_material.clone()),
+                    (BlockColor::Green, block_materials.green_material.clone()),
+                    (BlockColor::Blue, block_materials.blue_material.clone()),
+                    (BlockColor::Yellow, block_materials.yellow_material.clone()),
+                    (BlockColor::Purple, block_materials.purple_material.clone()),
+                    // (BlockColor::Indigo, block_materials.indigo_material.clone()),
+                ];
+                block_colors.shuffle(&mut rng);
+                let mut previous_block_queue = VecDeque::with_capacity(2);
+                for column_idx in 0..6 {
+                    let number = rng.gen_range(0..block_colors.len());
+                    let block = commands
+                        .spawn_bundle(SpriteBundle {
+                            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                            material: block_colors[number].1.clone(),
+                            transform: Transform {
+                                translation: Vec3::new(
+                                    relative_x + BLOCK_SIZE * column_idx as f32,
+                                    bottom_y - BLOCK_SIZE as f32,
+                                    0.0,
+                                ),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .insert(Block)
+                        .insert(block_colors[number].0)
+                        .insert(Spawning)
+                        .id();
+                    commands.entity(board_entity).push_children(&[block]);
+                    let tmp_remove_block = Some(block_colors.remove(number));
+                    previous_block_queue.push_back(tmp_remove_block);
+                    if previous_block_queue.len() > 1 {
+                        if let Some(Some(back_color_block)) = previous_block_queue.pop_front() {
+                            block_colors.push(back_color_block);
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1142,6 +1249,9 @@ fn test_setup_spawning_block() {
         purple_material: Handle::<ColorMaterial>::default(),
         indigo_material: Handle::<ColorMaterial>::default(),
         black_material: Handle::<ColorMaterial>::default(),
+    });
+    world.insert_resource(BottomMaterials {
+        bottom_material: Handle::<ColorMaterial>::default(),
     });
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite::new(Vec2::new(
@@ -2225,4 +2335,80 @@ fn test_stop_fall_block() {
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 0);
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
+}
+
+#[test]
+fn test_spawning_to_fixed() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(spawning_to_fixed.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, BLOCK_SIZE * -5.9, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Spawning);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 1);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_bottom_down() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(bottom_down.system());
+    let bottom = world
+        .spawn()
+        .insert(Bottom)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 6.0, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, -300.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .id();
+    update_stage.run(&mut world);
+    assert_eq!(
+        world.get::<Transform>(bottom).unwrap().translation.y,
+        -350.0
+    );
+}
+
+#[test]
+fn test_generate_spawning_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(generate_spawning_block.system());
+    world.insert_resource(BlockMaterials {
+        red_material: Handle::<ColorMaterial>::default(),
+        green_material: Handle::<ColorMaterial>::default(),
+        blue_material: Handle::<ColorMaterial>::default(),
+        yellow_material: Handle::<ColorMaterial>::default(),
+        purple_material: Handle::<ColorMaterial>::default(),
+        indigo_material: Handle::<ColorMaterial>::default(),
+        black_material: Handle::<ColorMaterial>::default(),
+    });
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        ..Default::default()
+    });
+    world.spawn().insert(Bottom).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 6.0, BLOCK_SIZE)),
+        transform: Transform {
+            translation: Vec3::new(0.0, -300.0, 0.0),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 6);
 }
