@@ -25,16 +25,35 @@ impl Plugin for IngamePlugin {
             )
             .add_startup_stage("setup_cursor", SystemStage::single(setup_cursor.system()))
             .add_system(move_cursor.system())
-            .add_system(move_tag_block.system())
-            .add_system(move_block.system())
             .add_system(match_block.system())
             .add_system(prepare_despawn_block.system())
             .add_system(despawn_block.system())
-            .add_system(check_fall_block.system())
-            .add_system(fall_upward.system())
-            .add_system(fall_block.system().label("fall_block"))
-            .add_system(stop_fall_block.system().after("fall_block"))
-            .add_system(moving_to_fixed.system());
+            .add_system_set(
+                SystemSet::new()
+                    .label("move_set")
+                    .before("fall_set")
+                    .with_system(move_tag_block.system())
+                    .with_system(custom_ease_system::<Moving>.system())
+                    .with_system(move_block.system().label("move_block"))
+                    .with_system(moving_to_fixed.system().after("move_block")),
+            )
+            .add_system_set(
+                SystemSet::new()
+                    .label("fall_set")
+                    .after("move_set")
+                    .with_system(check_fall_block.system())
+                    .with_system(fall_upward.system())
+                    .with_system(fall_block.system().label("fall_block"))
+                    .with_system(stop_fall_block.system().after("fall_block")),
+            )
+            .add_system(auto_liftup.system().after("fall_set"))
+            .add_system_set(
+                SystemSet::new()
+                    .label("spawning_set")
+                    .with_system(spawning_to_fixed.system())
+                    .with_system(bottom_down.system().label("bottom_down"))
+                    .with_system(generate_spawning_block.system().before("bottom_down")),
+            );
     }
 }
 
@@ -60,7 +79,16 @@ struct Spawning;
 #[derive(Debug)]
 struct Move(f32);
 
-struct Moving(Timer);
+#[derive(Default, Debug)]
+struct Moving(f32);
+
+impl Lerp for Moving {
+    type Scalar = f32;
+    fn lerp(&self, other: &Self, scalar: &Self::Scalar) -> Self {
+        // std::f32::lerp is unstable
+        Self(self.0 + (other.0 - self.0) * scalar)
+    }
+}
 
 #[derive(Debug)]
 struct Fixed;
@@ -68,6 +96,8 @@ struct Matched;
 struct FallPrepare;
 struct Fall;
 struct Despawining(Timer);
+
+struct Bottom;
 
 struct BlockMaterials {
     red_material: Handle<ColorMaterial>,
@@ -89,6 +119,10 @@ struct BoardBottomCoverMaterials {
 
 struct CursorMaterials {
     cursor_material: Handle<ColorMaterial>,
+}
+
+struct BottomMaterials {
+    bottom_material: Handle<ColorMaterial>,
 }
 
 #[derive(Debug)]
@@ -122,6 +156,9 @@ fn setup_assets(
     });
     commands.insert_resource(BoardBottomCoverMaterials {
         board_bottom_cover_material: materials.add(Color::GRAY.into()),
+    });
+    commands.insert_resource(BottomMaterials {
+        bottom_material: materials.add(Color::rgba(0.0, 0.0, 0.0, 0.7).into()),
     });
 }
 
@@ -227,6 +264,7 @@ fn setup_block(
 fn setup_spawning_block(
     mut commands: Commands,
     block_materials: Res<BlockMaterials>,
+    bottom_materials: Res<BottomMaterials>,
     board: Query<(Entity, &Transform, &Sprite), With<Board>>,
 ) {
     for (board_entity, board_transform, sprite) in board.iter() {
@@ -274,6 +312,19 @@ fn setup_spawning_block(
                 }
             }
         }
+        let bottom = commands
+            .spawn_bundle(SpriteBundle {
+                sprite: Sprite::new(Vec2::new(BLOCK_SIZE * BOARD_WIDTH as f32, BLOCK_SIZE)),
+                material: bottom_materials.bottom_material.clone(),
+                transform: Transform {
+                    translation: Vec3::new(0.0, bottom_y, 1.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(Bottom)
+            .id();
+        commands.entity(board_entity).push_children(&[bottom]);
     }
 }
 
@@ -336,27 +387,28 @@ fn move_tag_block(
             let mut left_collide = false;
             let mut right_collide = false;
 
+            // TODO: loosen collide conditions.
             for (block_entity, block_transform, fixed) in block.iter_mut() {
                 if (block_transform.translation.y - cursor_transform.translation.y).abs()
-                    < f32::EPSILON
+                    < BLOCK_SIZE / 2.0
                 {
                     // left target
-                    if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
+                    if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
                         left_block = (Some(block_entity), fixed);
                     }
                     // right target
-                    if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
+                    if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
                         right_block = (Some(block_entity), fixed);
                     }
                 } else if (block_transform.translation.y - cursor_transform.translation.y).abs()
-                    < BLOCK_SIZE
+                    < BLOCK_SIZE - 1.0
                 {
                     // left collision exists
-                    if (block_transform.translation.x - left_x).abs() < f32::EPSILON {
+                    if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
                         left_collide = true;
                     }
                     // right collision exsists
-                    else if (block_transform.translation.x - right_x).abs() < f32::EPSILON {
+                    else if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
                         right_collide = true;
                     }
                 }
@@ -392,40 +444,58 @@ fn move_tag_block(
         }
     }
     if keyboard_input.just_pressed(KeyCode::A) {
-        for (block_entity, transform, _fixed) in block.iter() {
-            println!("{}: {}", block_entity.id(), transform.translation);
+        println!("-------------------");
+        for (block_entity, transform, fixed) in block.iter() {
+            println!(
+                "{}: {}: {:?}",
+                block_entity.id(),
+                transform.translation,
+                fixed
+            );
         }
     }
 }
 
+// Transform easing isn't match, because y-axis must be defined.
 fn move_block(
     mut commands: Commands,
     mut block: Query<(Entity, &Transform, &Move), (With<Block>, With<Move>)>,
 ) {
-    for (entity, transform, target) in block.iter_mut() {
+    for (entity, transform, move_target) in block.iter_mut() {
         commands
             .entity(entity)
-            .insert(transform.ease_to(
-                Transform::from_translation(Vec3::new(target.0, transform.translation.y, 0.0)),
-                bevy_easings::EaseMethod::Linear,
-                bevy_easings::EasingType::Once {
-                    duration: std::time::Duration::from_millis(60),
+            .insert(Moving(transform.translation.x))
+            .insert(Moving(transform.translation.x).ease_to(
+                Moving(move_target.0),
+                EaseMethod::Linear,
+                EasingType::Once {
+                    duration: std::time::Duration::from_secs_f32(0.04),
                 },
             ))
-            .remove::<Move>()
-            .insert(Moving(Timer::from_seconds(0.06, false)));
+            .remove::<Move>();
     }
 }
 
 fn moving_to_fixed(
     mut commands: Commands,
-    time: Res<Time>,
-    mut block: Query<(Entity, &mut Moving), (With<Block>, With<Moving>)>,
+    mut block: Query<
+        (
+            Entity,
+            &mut Transform,
+            &Moving,
+            Option<&EasingComponent<Moving>>,
+        ),
+        (With<Block>, With<Moving>),
+    >,
 ) {
-    for (entity, mut moving) in block.iter_mut() {
-        moving.0.tick(Duration::from_secs_f32(time.delta_seconds()));
-        if moving.0.just_finished() {
-            commands.entity(entity).remove::<Moving>().insert(Fixed);
+    for (entity, mut transform, moving, easing_component) in block.iter_mut() {
+        match easing_component {
+            Some(_) => {
+                transform.translation.x = moving.0;
+            }
+            None => {
+                commands.entity(entity).remove::<Moving>().insert(Fixed);
+            }
         }
     }
 }
@@ -453,8 +523,9 @@ fn match_block(
         for (other_entity, other_transform, other_block_color) in other_block.iter_mut() {
             // left next to
             if (transform.translation.x - other_transform.translation.x - BLOCK_SIZE).abs()
-                < f32::EPSILON
-                && (transform.translation.y - other_transform.translation.y).abs() < f32::EPSILON
+                < BLOCK_SIZE / 2.0
+                && (transform.translation.y - other_transform.translation.y).abs()
+                    < BLOCK_SIZE / 2.0
                 && block_color == other_block_color
             {
                 row_matched_entities.push(entity);
@@ -462,8 +533,9 @@ fn match_block(
             }
             // right next to
             if (transform.translation.x - other_transform.translation.x + BLOCK_SIZE).abs()
-                < f32::EPSILON
-                && (transform.translation.y - other_transform.translation.y).abs() < f32::EPSILON
+                < BLOCK_SIZE / 2.0
+                && (transform.translation.y - other_transform.translation.y).abs()
+                    < BLOCK_SIZE / 2.0
                 && block_color == other_block_color
             {
                 row_matched_entities.push(entity);
@@ -471,8 +543,9 @@ fn match_block(
             }
             // top next to
             if (transform.translation.y - other_transform.translation.y + BLOCK_SIZE).abs()
-                < f32::EPSILON
-                && (transform.translation.x - other_transform.translation.x).abs() < f32::EPSILON
+                < BLOCK_SIZE / 2.0
+                && (transform.translation.x - other_transform.translation.x).abs()
+                    < BLOCK_SIZE / 2.0
                 && block_color == other_block_color
             {
                 column_matched_entities.push(entity);
@@ -480,8 +553,9 @@ fn match_block(
             }
             // down next to
             if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
-                < f32::EPSILON
-                && (transform.translation.x - other_transform.translation.x).abs() < f32::EPSILON
+                < BLOCK_SIZE / 2.0
+                && (transform.translation.x - other_transform.translation.x).abs()
+                    < BLOCK_SIZE / 2.0
                 && block_color == other_block_color
             {
                 column_matched_entities.push(entity);
@@ -649,7 +723,7 @@ fn check_fall_block(
             let mut is_exist = false;
             for other_transform in other_block.iter_mut() {
                 if (transform.translation.y - other_transform.translation.y - BLOCK_SIZE).abs()
-                    < f32::EPSILON
+                    < BLOCK_SIZE / 2.0
                     && (transform.translation.x - other_transform.translation.x).abs() < BLOCK_SIZE
                 {
                     is_exist = true;
@@ -675,7 +749,7 @@ fn fall_upward(
         for (fixed_entity, fixed_transform) in fixed_block.iter_mut() {
             if fallprepare_transform.translation.y < fixed_transform.translation.y
                 && (fallprepare_transform.translation.x - fixed_transform.translation.x).abs()
-                    < f32::EPSILON
+                    < BLOCK_SIZE / 2.0
             {
                 commands.entity(fixed_entity).remove::<Fixed>().insert(Fall);
             }
@@ -690,7 +764,7 @@ fn fall_upward(
 // TODO: fix falling time
 fn fall_block(time: Res<Time>, mut block: Query<&mut Transform, (With<Block>, With<Fall>)>) {
     for mut transform in block.iter_mut() {
-        transform.translation.y -= 400.0 * time.delta_seconds();
+        transform.translation.y -= 600.0 * time.delta_seconds();
     }
 }
 
@@ -714,6 +788,108 @@ fn stop_fall_block(
                 // TODO: some animation
                 fall_block_transform.translation.y =
                     other_block_transform.translation.y + BLOCK_SIZE;
+            }
+        }
+    }
+}
+
+fn auto_liftup(
+    time: Res<Time>,
+    not_fixed_block: Query<
+        Entity,
+        (
+            Without<Fixed>,
+            Without<Spawning>,
+            Without<Moving>,
+            Without<Move>,
+            With<Block>,
+        ),
+    >,
+    mut target: Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
+) {
+    let mut is_notfixed_block_exists = false;
+    for _ in not_fixed_block.iter() {
+        is_notfixed_block_exists = true;
+    }
+    if !is_notfixed_block_exists {
+        for mut transform in target.iter_mut() {
+            transform.translation.y += time.delta_seconds() * 10.0;
+        }
+    }
+}
+
+fn spawning_to_fixed(
+    mut commands: Commands,
+    spawning_block: Query<(Entity, &Transform), (With<Spawning>, With<Block>)>,
+) {
+    for (entity, transform) in spawning_block.iter() {
+        if transform.translation.y > -300.0 {
+            commands.entity(entity).remove::<Spawning>().insert(Fixed);
+        }
+    }
+}
+
+fn bottom_down(mut bottom: Query<&mut Transform, With<Bottom>>) {
+    for mut transform in bottom.iter_mut() {
+        if transform.translation.y >= BLOCK_SIZE * -6.0 {
+            transform.translation.y = BLOCK_SIZE * -7.0;
+        }
+    }
+}
+
+fn generate_spawning_block(
+    mut commands: Commands,
+    block_materials: Res<BlockMaterials>,
+    board: Query<(Entity, &Transform, &Sprite), With<Board>>,
+    bottom: Query<&Transform, With<Bottom>>,
+) {
+    for (board_entity, board_transform, sprite) in board.iter() {
+        for transform in bottom.iter() {
+            if transform.translation.y >= BLOCK_SIZE * -6.0 {
+                let relative_x =
+                    board_transform.translation.x - sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
+                let bottom_y =
+                    board_transform.translation.y - sprite.size.y / 2.0 - BLOCK_SIZE / 2.0;
+                let mut rng = rand::thread_rng();
+                let mut block_colors = vec![
+                    (BlockColor::Red, block_materials.red_material.clone()),
+                    (BlockColor::Green, block_materials.green_material.clone()),
+                    (BlockColor::Blue, block_materials.blue_material.clone()),
+                    (BlockColor::Yellow, block_materials.yellow_material.clone()),
+                    (BlockColor::Purple, block_materials.purple_material.clone()),
+                    // (BlockColor::Indigo, block_materials.indigo_material.clone()),
+                ];
+                block_colors.shuffle(&mut rng);
+                let mut previous_block_queue = VecDeque::with_capacity(2);
+                for column_idx in 0..6 {
+                    let number = rng.gen_range(0..block_colors.len());
+                    let block = commands
+                        .spawn_bundle(SpriteBundle {
+                            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                            material: block_colors[number].1.clone(),
+                            transform: Transform {
+                                translation: Vec3::new(
+                                    relative_x + BLOCK_SIZE * column_idx as f32,
+                                    bottom_y - BLOCK_SIZE as f32,
+                                    0.0,
+                                ),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .insert(Block)
+                        .insert(block_colors[number].0)
+                        .insert(Spawning)
+                        .id();
+                    commands.entity(board_entity).push_children(&[block]);
+                    let tmp_remove_block = Some(block_colors.remove(number));
+                    previous_block_queue.push_back(tmp_remove_block);
+                    if previous_block_queue.len() > 1 {
+                        if let Some(Some(back_color_block)) = previous_block_queue.pop_front() {
+                            block_colors.push(back_color_block);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1073,6 +1249,9 @@ fn test_setup_spawning_block() {
         purple_material: Handle::<ColorMaterial>::default(),
         indigo_material: Handle::<ColorMaterial>::default(),
         black_material: Handle::<ColorMaterial>::default(),
+    });
+    world.insert_resource(BottomMaterials {
+        bottom_material: Handle::<ColorMaterial>::default(),
     });
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite::new(Vec2::new(
@@ -2156,4 +2335,80 @@ fn test_stop_fall_block() {
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 0);
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
+}
+
+#[test]
+fn test_spawning_to_fixed() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(spawning_to_fixed.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, BLOCK_SIZE * -5.9, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Spawning);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 1);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_bottom_down() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(bottom_down.system());
+    let bottom = world
+        .spawn()
+        .insert(Bottom)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 6.0, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, -300.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .id();
+    update_stage.run(&mut world);
+    assert_eq!(
+        world.get::<Transform>(bottom).unwrap().translation.y,
+        -350.0
+    );
+}
+
+#[test]
+fn test_generate_spawning_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(generate_spawning_block.system());
+    world.insert_resource(BlockMaterials {
+        red_material: Handle::<ColorMaterial>::default(),
+        green_material: Handle::<ColorMaterial>::default(),
+        blue_material: Handle::<ColorMaterial>::default(),
+        yellow_material: Handle::<ColorMaterial>::default(),
+        purple_material: Handle::<ColorMaterial>::default(),
+        indigo_material: Handle::<ColorMaterial>::default(),
+        black_material: Handle::<ColorMaterial>::default(),
+    });
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        ..Default::default()
+    });
+    world.spawn().insert(Bottom).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 6.0, BLOCK_SIZE)),
+        transform: Transform {
+            translation: Vec3::new(0.0, -300.0, 0.0),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 6);
 }
