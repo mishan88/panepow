@@ -387,7 +387,6 @@ fn move_tag_block(
             let mut left_collide = false;
             let mut right_collide = false;
 
-            // TODO: loosen collide conditions.
             for (block_entity, block_transform, fixed) in block.iter_mut() {
                 if (block_transform.translation.y - cursor_transform.translation.y).abs()
                     < BLOCK_SIZE / 2.0
@@ -400,8 +399,11 @@ fn move_tag_block(
                     if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
                         right_block = (Some(block_entity), fixed);
                     }
-                } else if (block_transform.translation.y - cursor_transform.translation.y).abs()
-                    < BLOCK_SIZE - 1.0
+                }
+                // fall block collision
+                else if block_transform.translation.y - cursor_transform.translation.y
+                    < BLOCK_SIZE
+                    && block_transform.translation.y - cursor_transform.translation.y > 0.0
                 {
                     // left collision exists
                     if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
