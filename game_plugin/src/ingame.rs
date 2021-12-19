@@ -8,29 +8,26 @@ use bevy_easings::*;
 
 use rand::prelude::*;
 
+use crate::{
+    loading::{
+        BlockMaterials, BoardBottomCoverMaterials, BoardMaterials, BottomMaterials, CursorMaterials,
+    },
+    AppState,
+};
+
 pub struct IngamePlugin;
 
 impl Plugin for IngamePlugin {
     fn build(&self, app: &mut AppBuilder) {
         app.add_plugin(bevy_easings::EasingsPlugin)
-            .add_startup_system(setup_assets.system())
-            .add_startup_stage("setup_board", SystemStage::single(setup_board.system()))
-            .add_startup_stage(
-                "setup_board_bottom_cover",
-                SystemStage::single(setup_board_bottom_cover.system()),
-            )
-            .add_startup_stage("setup_block", SystemStage::single(setup_block.system()))
-            .add_startup_stage(
-                "setup_spawning_block",
-                SystemStage::single(setup_spawning_block.system()),
-            )
-            .add_startup_stage("setup_cursor", SystemStage::single(setup_cursor.system()))
-            .add_system(move_cursor.system())
-            .add_system(match_block.system())
-            .add_system(prepare_despawn_block.system())
-            .add_system(despawn_block.system())
             .add_system_set(
-                SystemSet::new()
+                SystemSet::on_enter(AppState::InGame)
+                    .with_system(setup_camera.system())
+                    .with_system(setup_board.system())
+                    .with_system(setup_board_bottom_cover.system()),
+            )
+            .add_system_set(
+                SystemSet::on_update(AppState::InGame)
                     .label("move_set")
                     .before("fall_set")
                     .with_system(move_tag_block.system())
@@ -39,7 +36,7 @@ impl Plugin for IngamePlugin {
                     .with_system(moving_to_fixed.system().after("move_block")),
             )
             .add_system_set(
-                SystemSet::new()
+                SystemSet::on_update(AppState::InGame)
                     .label("fall_set")
                     .after("move_set")
                     .with_system(check_fall_block.system().label("check_fall"))
@@ -63,13 +60,21 @@ impl Plugin for IngamePlugin {
                     )
                     .with_system(stop_fall_block.system().after("fall_block")),
             )
-            .add_system(auto_liftup.system().after("fall_set"))
             .add_system_set(
-                SystemSet::new()
+                SystemSet::on_update(AppState::InGame)
                     .label("spawning_set")
                     .with_system(spawning_to_fixed.system())
                     .with_system(bottom_down.system().label("bottom_down"))
                     .with_system(generate_spawning_block.system().before("bottom_down")),
+            )
+            .add_system_set(
+                SystemSet::on_update(AppState::InGame)
+                    .after("fall_set")
+                    .with_system(move_cursor.system())
+                    .with_system(match_block.system())
+                    .with_system(prepare_despawn_block.system())
+                    .with_system(despawn_block.system())
+                    .with_system(auto_liftup.system()),
             );
     }
 }
@@ -117,32 +122,6 @@ struct Despawining(Timer);
 
 struct Bottom;
 
-struct BlockMaterials {
-    red_material: Handle<ColorMaterial>,
-    green_material: Handle<ColorMaterial>,
-    blue_material: Handle<ColorMaterial>,
-    yellow_material: Handle<ColorMaterial>,
-    purple_material: Handle<ColorMaterial>,
-    indigo_material: Handle<ColorMaterial>,
-    black_material: Handle<ColorMaterial>,
-}
-
-struct BoardMaterials {
-    board_material: Handle<ColorMaterial>,
-}
-
-struct BoardBottomCoverMaterials {
-    board_bottom_cover_material: Handle<ColorMaterial>,
-}
-
-struct CursorMaterials {
-    cursor_material: Handle<ColorMaterial>,
-}
-
-struct BottomMaterials {
-    bottom_material: Handle<ColorMaterial>,
-}
-
 #[derive(Debug)]
 struct Cursor;
 
@@ -151,50 +130,148 @@ struct Board;
 
 struct BoardBottomCover;
 
-fn setup_assets(
-    mut commands: Commands,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    asset_server: Res<AssetServer>,
-) {
+fn setup_camera(mut commands: Commands) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
-    commands.insert_resource(BlockMaterials {
-        red_material: materials.add(asset_server.load("images/red_block.png").into()),
-        green_material: materials.add(asset_server.load("images/green_block.png").into()),
-        blue_material: materials.add(asset_server.load("images/blue_block.png").into()),
-        yellow_material: materials.add(asset_server.load("images/yellow_block.png").into()),
-        purple_material: materials.add(asset_server.load("images/purple_block.png").into()),
-        indigo_material: materials.add(asset_server.load("images/indigo_block.png").into()),
-        black_material: materials.add(Color::BLACK.into()),
-    });
-    commands.insert_resource(BoardMaterials {
-        board_material: materials.add(Color::rgba(1.0, 1.0, 1.0, 0.0).into()),
-    });
-    commands.insert_resource(CursorMaterials {
-        cursor_material: materials.add(asset_server.load("images/cursor.png").into()),
-    });
-    commands.insert_resource(BoardBottomCoverMaterials {
-        board_bottom_cover_material: materials.add(Color::GRAY.into()),
-    });
-    commands.insert_resource(BottomMaterials {
-        bottom_material: materials.add(Color::rgba(0.0, 0.0, 0.0, 0.7).into()),
-    });
 }
 
-fn setup_board(mut commands: Commands, board_materials: Res<BoardMaterials>) {
-    commands
+// TODO: divide function
+fn setup_board(
+    mut commands: Commands,
+    board_materials: Res<BoardMaterials>,
+    block_materials: Res<BlockMaterials>,
+    bottom_materials: Res<BottomMaterials>,
+    cursor_materials: Res<CursorMaterials>,
+) {
+    let board_transform = Transform {
+        translation: Vec3::ZERO,
+        ..Default::default()
+    };
+    let board_sprite = Sprite::new(Vec2::new(
+        BOARD_WIDTH as f32 * BLOCK_SIZE,
+        BOARD_HEIGHT as f32 * BLOCK_SIZE,
+    ));
+    let board_entity = commands
         .spawn_bundle(SpriteBundle {
             material: board_materials.board_material.clone(),
-            sprite: Sprite::new(Vec2::new(
-                BOARD_WIDTH as f32 * BLOCK_SIZE,
-                BOARD_HEIGHT as f32 * BLOCK_SIZE,
-            )),
+            sprite: board_sprite.clone(),
+            transform: board_transform,
+            ..Default::default()
+        })
+        .insert(Board)
+        .id();
+    let patterns = [[
+        [None, Some(3), None, None, None, None],
+        [None, Some(0), None, Some(1), Some(0), None],
+        [Some(0), Some(2), None, Some(2), Some(1), None],
+        [Some(1), Some(2), None, Some(3), Some(2), None],
+        [Some(3), Some(1), Some(3), Some(0), Some(3), Some(4)],
+        [Some(2), Some(0), Some(4), Some(1), Some(0), Some(1)],
+        [Some(4), Some(3), Some(2), Some(0), Some(4), Some(2)],
+    ]];
+    let mut rng = rand::thread_rng();
+    let mut block_colors = vec![
+        (BlockColor::Red, block_materials.red_material.clone()),
+        (BlockColor::Green, block_materials.green_material.clone()),
+        (BlockColor::Blue, block_materials.blue_material.clone()),
+        (BlockColor::Yellow, block_materials.yellow_material.clone()),
+        (BlockColor::Purple, block_materials.purple_material.clone()),
+        (BlockColor::Indigo, block_materials.indigo_material.clone()),
+    ];
+
+    let relative_x = board_transform.translation.x - board_sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
+    let relative_y = board_transform.translation.y - board_sprite.size.y / 2.0 + BLOCK_SIZE / 2.0;
+    let bottom_y = board_transform.translation.y - board_sprite.size.y / 2.0 - BLOCK_SIZE / 2.0;
+
+    if let Some(pattern) = patterns.iter().choose(&mut rng) {
+        for (row_idx, row) in pattern.iter().rev().enumerate() {
+            for (column_idx, one_block) in row.iter().enumerate() {
+                match one_block {
+                    None => {}
+                    Some(num) => {
+                        let block = commands
+                            .spawn_bundle(SpriteBundle {
+                                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                                material: block_colors[*num].1.clone(),
+                                transform: Transform {
+                                    translation: Vec3::new(
+                                        relative_x + BLOCK_SIZE * column_idx as f32,
+                                        relative_y + BLOCK_SIZE * row_idx as f32,
+                                        0.0,
+                                    ),
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            })
+                            .insert(Block)
+                            .insert(block_colors[*num].0)
+                            .insert(Fixed)
+                            .id();
+                        commands.entity(board_entity).push_children(&[block]);
+                    }
+                };
+            }
+        }
+    };
+
+    block_colors.shuffle(&mut rng);
+    for row_idx in 0..2 {
+        let mut previous_block_queue = VecDeque::with_capacity(2);
+        for column_idx in 0..6 {
+            let number = rng.gen_range(0..block_colors.len());
+            let block = commands
+                .spawn_bundle(SpriteBundle {
+                    sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+                    material: block_colors[number].1.clone(),
+                    transform: Transform {
+                        translation: Vec3::new(
+                            relative_x + BLOCK_SIZE * column_idx as f32,
+                            bottom_y - BLOCK_SIZE * row_idx as f32,
+                            0.0,
+                        ),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .insert(Block)
+                .insert(block_colors[number].0)
+                .insert(Spawning)
+                .id();
+            commands.entity(board_entity).push_children(&[block]);
+            let tmp_remove_block = Some(block_colors.remove(number));
+            previous_block_queue.push_back(tmp_remove_block);
+            if previous_block_queue.len() > 1 {
+                if let Some(Some(back_color_block)) = previous_block_queue.pop_front() {
+                    block_colors.push(back_color_block);
+                }
+            }
+        }
+    }
+    let bottom = commands
+        .spawn_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE * BOARD_WIDTH as f32, BLOCK_SIZE)),
+            material: bottom_materials.bottom_material.clone(),
             transform: Transform {
-                translation: Vec3::ZERO,
+                translation: Vec3::new(0.0, bottom_y, 1.0),
                 ..Default::default()
             },
             ..Default::default()
         })
-        .insert(Board);
+        .insert(Bottom)
+        .id();
+    commands.entity(board_entity).push_children(&[bottom]);
+    let cursor = commands
+        .spawn_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+            material: cursor_materials.cursor_material.clone(),
+            transform: Transform {
+                translation: Vec3::new(0.0, 0.0, 1.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Cursor)
+        .id();
+    commands.entity(board_entity).push_children(&[cursor]);
 }
 
 fn setup_board_bottom_cover(
@@ -1142,7 +1219,6 @@ fn test_setup_block() {
         yellow_material: Handle::<ColorMaterial>::default(),
         purple_material: Handle::<ColorMaterial>::default(),
         indigo_material: Handle::<ColorMaterial>::default(),
-        black_material: Handle::<ColorMaterial>::default(),
     });
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite::new(Vec2::new(
@@ -1179,7 +1255,6 @@ fn test_setup_spawning_block() {
         yellow_material: Handle::<ColorMaterial>::default(),
         purple_material: Handle::<ColorMaterial>::default(),
         indigo_material: Handle::<ColorMaterial>::default(),
-        black_material: Handle::<ColorMaterial>::default(),
     });
     world.insert_resource(BottomMaterials {
         bottom_material: Handle::<ColorMaterial>::default(),
@@ -2377,7 +2452,6 @@ fn test_generate_spawning_block() {
         yellow_material: Handle::<ColorMaterial>::default(),
         purple_material: Handle::<ColorMaterial>::default(),
         indigo_material: Handle::<ColorMaterial>::default(),
-        black_material: Handle::<ColorMaterial>::default(),
     });
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         ..Default::default()
