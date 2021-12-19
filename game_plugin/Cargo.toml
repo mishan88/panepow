@@ -1,5 +1,5 @@
 [package]
-name = "panepow"
+name = "game_plugin"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.5"
-game_plugin = { path = "game_plugin" }
+rand = "0.8"
+bevy_easings = "0.4"

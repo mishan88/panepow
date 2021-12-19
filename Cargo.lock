@@ -1372,6 +1372,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "game_plugin"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_easings",
+ "rand",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2479,8 +2488,7 @@ name = "panepow"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "bevy_easings",
- "rand",
+ "game_plugin",
 ]
 
 [[package]]

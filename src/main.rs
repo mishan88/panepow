@@ -1,7 +1,5 @@
 use bevy::prelude::*;
-
-mod ingame;
-use ingame::IngamePlugin;
+use game_plugin::GamePlugin;
 
 fn main() {
     App::build()
@@ -12,6 +10,6 @@ fn main() {
             ..Default::default()
         })
         .add_plugins(DefaultPlugins)
-        .add_plugin(IngamePlugin)
+        .add_plugin(GamePlugin)
         .run();
 }
