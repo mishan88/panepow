@@ -41,9 +41,25 @@ impl Plugin for IngamePlugin {
                 SystemSet::new()
                     .label("fall_set")
                     .after("move_set")
-                    .with_system(check_fall_block.system())
-                    .with_system(fall_upward.system())
-                    .with_system(fall_block.system().label("fall_block"))
+                    .with_system(check_fall_block.system().label("check_fall"))
+                    .with_system(
+                        fall_upward
+                            .system()
+                            .label("fall_upward")
+                            .after("check_fall"),
+                    )
+                    .with_system(
+                        floating_to_fall
+                            .system()
+                            .label("floating_to_fall")
+                            .after("fall_upward"),
+                    )
+                    .with_system(
+                        fall_block
+                            .system()
+                            .label("fall_block")
+                            .after("floating_to_fall"),
+                    )
                     .with_system(stop_fall_block.system().after("fall_block")),
             )
             .add_system(auto_liftup.system().after("fall_set"))
@@ -94,6 +110,7 @@ impl Lerp for Moving {
 struct Fixed;
 struct Matched;
 struct FallPrepare;
+struct Floating(Timer);
 struct Fall;
 struct Despawining(Timer);
 
@@ -387,7 +404,6 @@ fn move_tag_block(
             let mut left_collide = false;
             let mut right_collide = false;
 
-            // TODO: loosen collide conditions.
             for (block_entity, block_transform, fixed) in block.iter_mut() {
                 if (block_transform.translation.y - cursor_transform.translation.y).abs()
                     < BLOCK_SIZE / 2.0
@@ -400,8 +416,11 @@ fn move_tag_block(
                     if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
                         right_block = (Some(block_entity), fixed);
                     }
-                } else if (block_transform.translation.y - cursor_transform.translation.y).abs()
-                    < BLOCK_SIZE - 1.0
+                }
+                // fall block collision
+                else if block_transform.translation.y - cursor_transform.translation.y
+                    < BLOCK_SIZE
+                    && block_transform.translation.y - cursor_transform.translation.y > 0.0
                 {
                     // left collision exists
                     if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
@@ -751,13 +770,31 @@ fn fall_upward(
                 && (fallprepare_transform.translation.x - fixed_transform.translation.x).abs()
                     < BLOCK_SIZE / 2.0
             {
-                commands.entity(fixed_entity).remove::<Fixed>().insert(Fall);
+                commands
+                    .entity(fixed_entity)
+                    .remove::<Fixed>()
+                    .insert(Floating(Timer::from_seconds(0.02, false)));
             }
         }
         commands
             .entity(fallprepare_entity)
             .remove::<FallPrepare>()
-            .insert(Fall);
+            .insert(Floating(Timer::from_seconds(0.02, false)));
+    }
+}
+
+fn floating_to_fall(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut floating_block: Query<(Entity, &mut Floating), (With<Floating>, With<Block>)>,
+) {
+    for (entity, mut floating) in floating_block.iter_mut() {
+        floating
+            .0
+            .tick(Duration::from_secs_f32(time.delta_seconds()));
+        if floating.0.just_finished() {
+            commands.entity(entity).insert(Fall).remove::<Floating>();
+        }
     }
 }
 
@@ -2298,6 +2335,59 @@ fn test_check_fall_block_bottom_block_not_fall() {
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+}
+
+#[test]
+fn test_fall_upward() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(fall_upward.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(FallPrepare);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Floating)>().iter(&world).len(), 2);
+}
+
+#[ignore = "how to update time?"]
+#[test]
+fn test_floating_to_fall() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(floating_to_fall.system());
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Floating(Timer::from_seconds(0.02, false)));
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 1);
 }
 
 #[test]
