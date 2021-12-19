@@ -17,7 +17,6 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app
-            .add_plugin(IngamePlugin);
+        app.add_plugin(IngamePlugin);
     }
 }
