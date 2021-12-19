@@ -2045,7 +2045,6 @@ fn test_prepare_despawn_block() {
     );
 }
 
-#[ignore = "how to update time?"]
 #[test]
 fn test_despawn_block() {
     let mut world = World::default();
@@ -2057,7 +2056,7 @@ fn test_despawn_block() {
     let block = world
         .spawn()
         .insert(Block)
-        .insert(Despawining(Timer::from_seconds(0.009, false)))
+        .insert(Despawining(Timer::from_seconds(0.0, false)))
         .id();
 
     update_stage.run(&mut world);
@@ -2371,20 +2370,18 @@ fn test_fall_upward() {
     assert_eq!(world.query::<(&Block, &Floating)>().iter(&world).len(), 2);
 }
 
-#[ignore = "how to update time?"]
 #[test]
 fn test_floating_to_fall() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(floating_to_fall.system());
 
+    let time = Time::default();
+    world.insert_resource(time);
     world
         .spawn()
         .insert(Block)
-        .insert(Floating(Timer::from_seconds(0.02, false)));
-    let mut time = Time::default();
-    time.update();
-    world.insert_resource(time);
+        .insert(Floating(Timer::from_seconds(0.0, false)));
 
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 1);
