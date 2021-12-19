@@ -13,6 +13,5 @@ fn main() {
         })
         .add_plugins(DefaultPlugins)
         .add_plugin(IngamePlugin)
-        .add_plugin(bevy_easings::EasingsPlugin)
         .run();
 }

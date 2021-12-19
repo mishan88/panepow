@@ -12,7 +12,8 @@ pub struct IngamePlugin;
 
 impl Plugin for IngamePlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_startup_system(setup_assets.system())
+        app.add_plugin(bevy_easings::EasingsPlugin)
+            .add_startup_system(setup_assets.system())
             .add_startup_stage("setup_board", SystemStage::single(setup_board.system()))
             .add_startup_stage(
                 "setup_board_bottom_cover",
