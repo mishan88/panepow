@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::prelude::{App, DefaultPlugins, WindowDescriptor};
 use game_plugin::GamePlugin;
 
 fn main() {
