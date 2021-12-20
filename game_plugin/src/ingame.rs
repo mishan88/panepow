@@ -130,6 +130,8 @@ struct Board;
 
 struct BoardBottomCover;
 
+struct CountTimer(Timer);
+
 fn setup_camera(mut commands: Commands) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
 }
@@ -272,6 +274,9 @@ fn setup_board(
         .insert(Cursor)
         .id();
     commands.entity(board_entity).push_children(&[cursor]);
+    commands
+        .spawn()
+        .insert(CountTimer(Timer::from_seconds(1.0, false)));
 }
 
 fn setup_board_bottom_cover(
@@ -899,6 +904,27 @@ fn generate_spawning_block(
                     }
                 }
             }
+        }
+    }
+}
+
+fn gameover_count(
+    time: Res<Time>,
+    mut state: ResMut<State<AppState>>,
+    mut timer: Query<&mut CountTimer, With<CountTimer>>,
+    block: Query<&Transform, With<Block>>,
+) {
+    for transform in block.iter() {
+        if transform.translation.y + BLOCK_SIZE / 2.0 > 300.0 {
+            if let Ok(mut count_timer) = timer.single_mut() {
+                count_timer
+                    .0
+                    .tick(Duration::from_secs_f32(time.delta_seconds()));
+                if count_timer.0.just_finished() {
+                    state.set(AppState::GameOver).unwrap();
+                }
+            }
+            break;
         }
     }
 }
@@ -2466,4 +2492,37 @@ fn test_generate_spawning_block() {
     });
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 6);
+}
+
+#[ignore = ""]
+#[test]
+fn test_gameover_count() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(gameover_count.system());
+    let time = Time::default();
+    world.insert_resource(time);
+    let app_state = State::new(AppState::InGame);
+    world.insert_resource(app_state);
+
+    world.spawn().insert(Block).insert_bundle(SpriteBundle {
+        sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+        transform: Transform {
+            translation: Vec3::new(0.0, 400.0, 0.0),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    world
+        .spawn()
+        .insert(CountTimer(Timer::from_seconds(0.0, false)));
+    assert_eq!(
+        world.get_resource::<State<AppState>>().unwrap().current(),
+        &AppState::InGame
+    );
+    update_stage.run(&mut world);
+    assert_eq!(
+        world.get_resource::<State<AppState>>().unwrap().current(),
+        &AppState::GameOver
+    );
 }
