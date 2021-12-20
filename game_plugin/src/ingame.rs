@@ -177,7 +177,7 @@ fn setup_board(
         (BlockColor::Blue, block_materials.blue_material.clone()),
         (BlockColor::Yellow, block_materials.yellow_material.clone()),
         (BlockColor::Purple, block_materials.purple_material.clone()),
-        (BlockColor::Indigo, block_materials.indigo_material.clone()),
+        // (BlockColor::Indigo, block_materials.indigo_material.clone()),
     ];
 
     let relative_x = board_transform.translation.x - board_sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
@@ -553,8 +553,6 @@ fn despawn_block(
     }
 }
 
-// TODO: integrate match block
-// TODO: fall same time above the block
 fn check_fall_block(
     mut commands: Commands,
     mut block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
@@ -585,25 +583,34 @@ fn check_fall_block(
 
 fn fall_upward(
     mut commands: Commands,
+    board: Query<&Children, With<Board>>,
     mut fallprepare_block: Query<(Entity, &Transform), (With<Block>, With<FallPrepare>)>,
     mut fixed_block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
 ) {
-    for (fallprepare_entity, fallprepare_transform) in fallprepare_block.iter_mut() {
-        for (fixed_entity, fixed_transform) in fixed_block.iter_mut() {
-            if fallprepare_transform.translation.y < fixed_transform.translation.y
-                && (fallprepare_transform.translation.x - fixed_transform.translation.x).abs()
-                    < BLOCK_SIZE / 2.0
-            {
-                commands
-                    .entity(fixed_entity)
-                    .remove::<Fixed>()
-                    .insert(Floating(Timer::from_seconds(0.02, false)));
+    for children in board.iter() {
+        for &child in children.iter() {
+            for &another_child in children.iter() {
+                for (fallprepare_entity, fallprepare_transform) in fallprepare_block.get_mut(child)
+                {
+                    for (fixed_entity, fixed_transform) in fixed_block.get_mut(another_child) {
+                        if fallprepare_transform.translation.y < fixed_transform.translation.y
+                            && (fallprepare_transform.translation.x - fixed_transform.translation.x)
+                                .abs()
+                                < BLOCK_SIZE / 2.0
+                        {
+                            commands
+                                .entity(fixed_entity)
+                                .remove::<Fixed>()
+                                .insert(Floating(Timer::from_seconds(0.02, false)));
+                        }
+                    }
+                    commands
+                        .entity(fallprepare_entity)
+                        .remove::<FallPrepare>()
+                        .insert(Floating(Timer::from_seconds(0.02, false)));
+                }
             }
         }
-        commands
-            .entity(fallprepare_entity)
-            .remove::<FallPrepare>()
-            .insert(Floating(Timer::from_seconds(0.02, false)));
     }
 }
 
@@ -2119,7 +2126,9 @@ fn test_fall_upward() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(fall_upward.system());
-    world
+    let board = world.spawn().insert(Board).id();
+
+    let under_block = world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
@@ -2130,8 +2139,9 @@ fn test_fall_upward() {
             },
             ..Default::default()
         })
-        .insert(FallPrepare);
-    world
+        .insert(FallPrepare)
+        .id();
+    let upper_block = world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
@@ -2142,7 +2152,11 @@ fn test_fall_upward() {
             },
             ..Default::default()
         })
-        .insert(Fixed);
+        .insert(Fixed)
+        .id();
+    world
+        .entity_mut(board)
+        .push_children(&[under_block, upper_block]);
 
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Floating)>().iter(&world).len(), 2);
