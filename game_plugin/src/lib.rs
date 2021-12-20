@@ -13,6 +13,7 @@ enum AppState {
     Menu,
     Loading,
     InGame,
+    GameOver,
 }
 
 pub struct GamePlugin;
