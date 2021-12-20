@@ -298,158 +298,6 @@ fn setup_board_bottom_cover(
         .insert(BoardBottomCover);
 }
 
-// TODO: generate from some block patterns.
-fn setup_block(
-    mut commands: Commands,
-    block_materials: Res<BlockMaterials>,
-    board: Query<(Entity, &Transform, &Sprite), With<Board>>,
-) {
-    let patterns = [[
-        [None, Some(3), None, None, None, None],
-        [None, Some(0), None, Some(1), Some(0), None],
-        [Some(0), Some(2), None, Some(2), Some(1), None],
-        [Some(1), Some(2), None, Some(3), Some(2), None],
-        [Some(3), Some(1), Some(3), Some(0), Some(3), Some(4)],
-        [Some(2), Some(0), Some(4), Some(1), Some(0), Some(1)],
-        [Some(4), Some(3), Some(2), Some(0), Some(4), Some(2)],
-    ]];
-    let mut rng = rand::thread_rng();
-    let block_colors = [
-        (BlockColor::Red, block_materials.red_material.clone()),
-        (BlockColor::Green, block_materials.green_material.clone()),
-        (BlockColor::Blue, block_materials.blue_material.clone()),
-        (BlockColor::Yellow, block_materials.yellow_material.clone()),
-        (BlockColor::Purple, block_materials.purple_material.clone()),
-        (BlockColor::Indigo, block_materials.indigo_material.clone()),
-    ];
-    // block_colors.shuffle(&mut rng);
-
-    for (board_entity, board_transform, sprite) in board.iter() {
-        let relative_x = board_transform.translation.x - sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
-        let relative_y = board_transform.translation.y - sprite.size.y / 2.0 + BLOCK_SIZE / 2.0;
-
-        if let Some(pattern) = patterns.iter().choose(&mut rng) {
-            for (row_idx, row) in pattern.iter().rev().enumerate() {
-                for (column_idx, one_block) in row.iter().enumerate() {
-                    match one_block {
-                        None => {}
-                        Some(num) => {
-                            let block = commands
-                                .spawn_bundle(SpriteBundle {
-                                    sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                                    material: block_colors[*num].1.clone(),
-                                    transform: Transform {
-                                        translation: Vec3::new(
-                                            relative_x + BLOCK_SIZE * column_idx as f32,
-                                            relative_y + BLOCK_SIZE * row_idx as f32,
-                                            0.0,
-                                        ),
-                                        ..Default::default()
-                                    },
-                                    ..Default::default()
-                                })
-                                .insert(Block)
-                                .insert(block_colors[*num].0)
-                                .insert(Fixed)
-                                .id();
-                            commands.entity(board_entity).push_children(&[block]);
-                        }
-                    };
-                }
-            }
-        };
-    }
-}
-
-fn setup_spawning_block(
-    mut commands: Commands,
-    block_materials: Res<BlockMaterials>,
-    bottom_materials: Res<BottomMaterials>,
-    board: Query<(Entity, &Transform, &Sprite), With<Board>>,
-) {
-    for (board_entity, board_transform, sprite) in board.iter() {
-        let relative_x = board_transform.translation.x - sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
-        let bottom_y = board_transform.translation.y - sprite.size.y / 2.0 - BLOCK_SIZE / 2.0;
-        let mut rng = rand::thread_rng();
-        let mut block_colors = vec![
-            (BlockColor::Red, block_materials.red_material.clone()),
-            (BlockColor::Green, block_materials.green_material.clone()),
-            (BlockColor::Blue, block_materials.blue_material.clone()),
-            (BlockColor::Yellow, block_materials.yellow_material.clone()),
-            (BlockColor::Purple, block_materials.purple_material.clone()),
-            // (BlockColor::Indigo, block_materials.indigo_material.clone()),
-        ];
-        block_colors.shuffle(&mut rng);
-        for row_idx in 0..2 {
-            let mut previous_block_queue = VecDeque::with_capacity(2);
-            for column_idx in 0..6 {
-                let number = rng.gen_range(0..block_colors.len());
-                let block = commands
-                    .spawn_bundle(SpriteBundle {
-                        sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                        material: block_colors[number].1.clone(),
-                        transform: Transform {
-                            translation: Vec3::new(
-                                relative_x + BLOCK_SIZE * column_idx as f32,
-                                bottom_y - BLOCK_SIZE * row_idx as f32,
-                                0.0,
-                            ),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    })
-                    .insert(Block)
-                    .insert(block_colors[number].0)
-                    .insert(Spawning)
-                    .id();
-                commands.entity(board_entity).push_children(&[block]);
-                let tmp_remove_block = Some(block_colors.remove(number));
-                previous_block_queue.push_back(tmp_remove_block);
-                if previous_block_queue.len() > 1 {
-                    if let Some(Some(back_color_block)) = previous_block_queue.pop_front() {
-                        block_colors.push(back_color_block);
-                    }
-                }
-            }
-        }
-        let bottom = commands
-            .spawn_bundle(SpriteBundle {
-                sprite: Sprite::new(Vec2::new(BLOCK_SIZE * BOARD_WIDTH as f32, BLOCK_SIZE)),
-                material: bottom_materials.bottom_material.clone(),
-                transform: Transform {
-                    translation: Vec3::new(0.0, bottom_y, 1.0),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .insert(Bottom)
-            .id();
-        commands.entity(board_entity).push_children(&[bottom]);
-    }
-}
-
-fn setup_cursor(
-    mut commands: Commands,
-    materials: Res<CursorMaterials>,
-    board: Query<Entity, With<Board>>,
-) {
-    for board_entity in board.iter() {
-        let cursor = commands
-            .spawn_bundle(SpriteBundle {
-                sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
-                material: materials.cursor_material.clone(),
-                transform: Transform {
-                    translation: Vec3::new(0.0, 0.0, 1.0),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .insert(Cursor)
-            .id();
-        commands.entity(board_entity).push_children(&[cursor]);
-    }
-}
-
 fn move_cursor(
     keyboard_input: Res<Input<KeyCode>>,
     mut cursor: Query<&mut Transform, With<Cursor>>,
@@ -938,24 +786,27 @@ fn test_setup_board() {
     world.insert_resource(BoardMaterials {
         board_material: Handle::<ColorMaterial>::default(),
     });
-    update_stage.run(&mut world);
-    assert!(world.is_resource_added::<BoardMaterials>());
-    assert_eq!(world.query::<&Board>().iter(&world).len(), 1);
-}
-
-#[test]
-fn test_setup_cursor() {
-    let mut world = World::default();
-    let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(setup_cursor.system());
-
+    world.insert_resource(BlockMaterials {
+        red_material: Handle::<ColorMaterial>::default(),
+        green_material: Handle::<ColorMaterial>::default(),
+        blue_material: Handle::<ColorMaterial>::default(),
+        yellow_material: Handle::<ColorMaterial>::default(),
+        purple_material: Handle::<ColorMaterial>::default(),
+        indigo_material: Handle::<ColorMaterial>::default(),
+    });
+    world.insert_resource(BottomMaterials {
+        bottom_material: Handle::<ColorMaterial>::default(),
+    });
     world.insert_resource(CursorMaterials {
         cursor_material: Handle::<ColorMaterial>::default(),
     });
-    world.spawn().insert(Board);
+
     update_stage.run(&mut world);
-    assert!(world.is_resource_added::<CursorMaterials>());
+    assert_eq!(world.query::<&Board>().iter(&world).len(), 1);
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
+    assert!(world.query::<&Block>().iter(&world).len() > 5);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 12);
+    assert_eq!(world.query::<&Bottom>().iter(&world).len(), 1);
 }
 
 #[test]
@@ -1230,74 +1081,6 @@ fn test_up_move_cursor() {
             .translation,
         Vec3::new(0.0, 6.0 * BLOCK_SIZE, 0.0)
     );
-}
-
-#[test]
-fn test_setup_block() {
-    let mut world = World::default();
-    let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(setup_block.system());
-
-    world.insert_resource(BlockMaterials {
-        red_material: Handle::<ColorMaterial>::default(),
-        green_material: Handle::<ColorMaterial>::default(),
-        blue_material: Handle::<ColorMaterial>::default(),
-        yellow_material: Handle::<ColorMaterial>::default(),
-        purple_material: Handle::<ColorMaterial>::default(),
-        indigo_material: Handle::<ColorMaterial>::default(),
-    });
-    world.spawn().insert(Board).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(
-            BOARD_WIDTH as f32 * BLOCK_SIZE,
-            BOARD_HEIGHT as f32 * BLOCK_SIZE,
-        )),
-        transform: Transform {
-            translation: Vec3::ZERO,
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-    update_stage.run(&mut world);
-    assert_eq!(
-        world
-            .query::<(&Board, Entity, &Transform, &Sprite)>()
-            .iter(&world)
-            .len(),
-        1
-    );
-    assert!(world.is_resource_added::<BlockMaterials>());
-    assert!(world.query::<&Block>().iter(&world).len() > 5);
-}
-
-#[test]
-fn test_setup_spawning_block() {
-    let mut world = World::default();
-    let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(setup_spawning_block.system());
-    world.insert_resource(BlockMaterials {
-        red_material: Handle::<ColorMaterial>::default(),
-        green_material: Handle::<ColorMaterial>::default(),
-        blue_material: Handle::<ColorMaterial>::default(),
-        yellow_material: Handle::<ColorMaterial>::default(),
-        purple_material: Handle::<ColorMaterial>::default(),
-        indigo_material: Handle::<ColorMaterial>::default(),
-    });
-    world.insert_resource(BottomMaterials {
-        bottom_material: Handle::<ColorMaterial>::default(),
-    });
-    world.spawn().insert(Board).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(
-            BOARD_WIDTH as f32 * BLOCK_SIZE,
-            BOARD_HEIGHT as f32 * BLOCK_SIZE,
-        )),
-        transform: Transform {
-            translation: Vec3::ZERO,
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-    update_stage.run(&mut world);
-    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 12);
 }
 
 #[test]
