@@ -2265,6 +2265,34 @@ fn test_stop_fall_block() {
 }
 
 #[test]
+fn test_auto_liftup() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(auto_liftup.system());
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+
+    let block = world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed)
+        .id();
+    assert_eq!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
+    world.get_resource_mut::<Time>().unwrap().update();
+    update_stage.run(&mut world);
+    assert_ne!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
+}
+
+#[test]
 fn test_spawning_to_fixed() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
