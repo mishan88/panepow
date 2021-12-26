@@ -58,7 +58,13 @@ impl Plugin for IngamePlugin {
                             .label("fall_block")
                             .after("floating_to_fall"),
                     )
-                    .with_system(stop_fall_block.system().after("fall_block")),
+                    .with_system(
+                        stop_fall_block
+                            .system()
+                            .label("stop_fall_block")
+                            .after("fall_block"),
+                    )
+                    .with_system(fixedprepare_to_fixed.system().after("stop_fall_block")),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
@@ -119,6 +125,7 @@ struct Matched;
 struct FallPrepare;
 struct Floating(Timer);
 struct Fall;
+struct FixedPrepare;
 struct Despawining(Timer);
 
 struct Bottom;
@@ -658,12 +665,55 @@ fn stop_fall_block(
             ) {
                 commands
                     .entity(fall_block_entity)
-                    .insert(Fixed)
+                    .insert(FixedPrepare)
                     .remove::<Fall>();
                 // TODO: some animation
                 fall_block_transform.translation.y =
                     other_block_transform.translation.y + BLOCK_SIZE;
             }
+        }
+    }
+}
+
+fn fixedprepare_to_fixed(
+    mut commands: Commands,
+    mut fixedprepare_block: Query<(Entity, &mut Transform), (With<Block>, With<FixedPrepare>)>,
+    mut fall_block: Query<
+        (Entity, &mut Transform),
+        (With<Block>, With<Fall>, Without<FixedPrepare>),
+    >,
+) {
+    for (fixedprepare_entity, fixedprepare_transform) in fixedprepare_block.iter_mut() {
+        let fixedprepare_transform_vec = fixedprepare_transform.translation;
+        let mut fixed_block_candidates = vec![(fixedprepare_entity, fixedprepare_transform)];
+
+        for (fall_block_entity, fall_transform) in fall_block.iter_mut() {
+            if fixedprepare_transform_vec.y < fall_transform.translation.y
+                && (fixedprepare_transform_vec.x - fall_transform.translation.x).abs()
+                    < BLOCK_SIZE / 2.0
+            {
+                fixed_block_candidates.push((fall_block_entity, fall_transform));
+            }
+        }
+        fixed_block_candidates.sort_unstable_by(|(_, trans_a), (_, trans_b)| {
+            trans_a
+                .translation
+                .y
+                .partial_cmp(&trans_b.translation.y)
+                .unwrap()
+        });
+        let mut current_y = fixedprepare_transform_vec.y;
+        for (en, mut tr) in fixed_block_candidates {
+            if tr.translation.y - current_y > BLOCK_SIZE * 0.5 {
+                break;
+            }
+            commands
+                .entity(en)
+                .remove::<FixedPrepare>()
+                .remove::<Fall>()
+                .insert(Fixed);
+            tr.translation.y = current_y;
+            current_y += BLOCK_SIZE;
         }
     }
 }
@@ -2266,7 +2316,61 @@ fn test_stop_fall_block() {
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 0);
+    assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
+    assert_eq!(
+        world.query::<(&Block, &FixedPrepare)>().iter(&world).len(),
+        1
+    );
+}
+
+#[test]
+fn test_fixedprepare_to_fixed() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(fixedprepare_to_fixed.system());
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(FixedPrepare);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fall);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * 3.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fall);
+    update_stage.run(&mut world);
+    assert_eq!(
+        world.query::<(&Block, &FixedPrepare)>().iter(&world).len(),
+        0
+    );
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
+    assert_eq!(world.query::<(&Block, &Fall)>().iter(&world).len(), 1);
 }
 
 #[test]
