@@ -720,25 +720,34 @@ fn fixedprepare_to_fixed(
 
 fn auto_liftup(
     time: Res<Time>,
-    not_fixed_block: Query<
-        Entity,
-        (
-            Without<Fixed>,
-            Without<Spawning>,
-            Without<Moving>,
-            Without<Move>,
-            With<Block>,
-        ),
-    >,
-    mut target: Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
+    mut query_set: QuerySet<(
+        Query<
+            Entity,
+            (
+                Without<Fixed>,
+                Without<Spawning>,
+                Without<Moving>,
+                Without<Move>,
+                With<Block>,
+            ),
+        >,
+        Query<(&Transform, &Sprite), (With<Fixed>, With<Block>)>,
+        Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
+    )>,
 ) {
-    let mut is_notfixed_block_exists = false;
-    for _ in not_fixed_block.iter() {
-        is_notfixed_block_exists = true;
-    }
-    if !is_notfixed_block_exists {
-        for mut transform in target.iter_mut() {
-            transform.translation.y += time.delta_seconds() * 10.0;
+    let max_bl = query_set
+        .q1()
+        .iter()
+        .max_by(|(a_tr, _a_sp), (b_tr, _b_sp)| {
+            a_tr.translation.y.partial_cmp(&b_tr.translation.y).unwrap()
+        });
+    if let Some((max_tr, max_sp)) = max_bl {
+        if max_tr.translation.y + max_sp.size.y / 2.0 < BLOCK_SIZE * 6.0
+            && query_set.q0().iter().next().is_none()
+        {
+            for mut transform in query_set.q2_mut().iter_mut() {
+                transform.translation.y += time.delta_seconds() * 10.0;
+            }
         }
     }
 }
