@@ -74,7 +74,8 @@ impl Plugin for IngamePlugin {
                     .with_system(match_block.system())
                     .with_system(prepare_despawn_block.system())
                     .with_system(despawn_block.system())
-                    .with_system(auto_liftup.system()),
+                    .with_system(auto_liftup.system())
+                    .with_system(gameover_count.system()),
             );
     }
 }
@@ -775,17 +776,21 @@ fn gameover_count(
     mut timer: Query<&mut CountTimer, With<CountTimer>>,
     block: Query<&Transform, With<Block>>,
 ) {
+    let mut is_reach_block = false;
     for transform in block.iter() {
         if transform.translation.y + BLOCK_SIZE / 2.0 > 300.0 {
-            if let Ok(mut count_timer) = timer.single_mut() {
-                count_timer
-                    .0
-                    .tick(Duration::from_secs_f32(time.delta_seconds()));
-                if count_timer.0.just_finished() {
-                    state.set(AppState::GameOver).unwrap();
-                }
+            is_reach_block = true;
+        }
+    }
+
+    if is_reach_block {
+        if let Ok(mut count_timer) = timer.single_mut() {
+            count_timer
+                .0
+                .tick(Duration::from_secs_f32(time.delta_seconds()));
+            if count_timer.0.just_finished() {
+                state.set(AppState::GameOver).unwrap();
             }
-            break;
         }
     }
 }
@@ -2367,13 +2372,14 @@ fn test_generate_spawning_block() {
     assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 6);
 }
 
-#[ignore = ""]
+#[ignore = "how to finish timer?"]
 #[test]
 fn test_gameover_count() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(gameover_count.system());
-    let time = Time::default();
+    let mut time = Time::default();
+    time.update();
     world.insert_resource(time);
     let app_state = State::new(AppState::InGame);
     world.insert_resource(app_state);
@@ -2388,12 +2394,14 @@ fn test_gameover_count() {
     });
     world
         .spawn()
-        .insert(CountTimer(Timer::from_seconds(0.0, false)));
+        .insert(CountTimer(Timer::from_seconds(0.1, false)));
     assert_eq!(
         world.get_resource::<State<AppState>>().unwrap().current(),
         &AppState::InGame
     );
+    world.get_resource_mut::<Time>().unwrap().update();
     update_stage.run(&mut world);
+
     assert_eq!(
         world.get_resource::<State<AppState>>().unwrap().current(),
         &AppState::GameOver
