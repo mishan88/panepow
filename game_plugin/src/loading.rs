@@ -56,7 +56,7 @@ pub struct BoardMaterials {
 #[derive(AssetCollection)]
 pub struct BoardBottomCoverMaterials {
     #[asset(color_material)]
-    #[asset(path = "images/transparent.png")]
+    #[asset(path = "images/bottom_cover.png")]
     pub board_bottom_cover_material: Handle<ColorMaterial>,
 }
 
@@ -70,6 +70,6 @@ pub struct CursorMaterials {
 #[derive(AssetCollection)]
 pub struct BottomMaterials {
     #[asset(color_material)]
-    #[asset(path = "images/transparent.png")]
+    #[asset(path = "images/bottom.png")]
     pub bottom_material: Handle<ColorMaterial>,
 }
