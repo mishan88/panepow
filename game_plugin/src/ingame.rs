@@ -702,9 +702,10 @@ fn fixedprepare_to_fixed(
                 .partial_cmp(&trans_b.translation.y)
                 .unwrap()
         });
-        let mut current_y = fixedprepare_transform_vec.y;
-        for (en, mut tr) in fixed_block_candidates {
-            if tr.translation.y - current_y > BLOCK_SIZE * 0.5 {
+        for (idx, (en, mut tr)) in fixed_block_candidates.into_iter().enumerate() {
+            if tr.translation.y - (fixedprepare_transform_vec.y + BLOCK_SIZE * idx as f32)
+                > BLOCK_SIZE * 0.5
+            {
                 break;
             }
             commands
@@ -712,8 +713,7 @@ fn fixedprepare_to_fixed(
                 .remove::<FixedPrepare>()
                 .remove::<Fall>()
                 .insert(Fixed);
-            tr.translation.y = current_y;
-            current_y += BLOCK_SIZE;
+            tr.translation.y = fixedprepare_transform_vec.y + BLOCK_SIZE * idx as f32;
         }
     }
 }
