@@ -2401,6 +2401,113 @@ fn test_auto_liftup() {
 }
 
 #[test]
+fn test_auto_liftup_stop_with_timer() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(auto_liftup.system());
+    let app_state = State::new(AppState::InGame);
+    world.insert_resource(app_state);
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+    world
+        .spawn()
+        .insert(CountTimer(Timer::from_seconds(1.0, false)));
+
+    let block = world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed)
+        .id();
+    assert_eq!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
+
+    world.get_resource_mut::<Time>().unwrap().update();
+    update_stage.run(&mut world);
+    assert_eq!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
+}
+
+#[test]
+fn test_auto_liftup_stop_with_fall_block() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(auto_liftup.system());
+    let app_state = State::new(AppState::InGame);
+    world.insert_resource(app_state);
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+    world
+        .spawn()
+        .insert(CountTimer(Timer::from_seconds(0.0, false)));
+
+    let block = world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fall)
+        .id();
+    assert_eq!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
+    world.get_resource_mut::<Time>().unwrap().update();
+    update_stage.run(&mut world);
+    assert_eq!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
+}
+
+#[ignore = "how to change state?"]
+#[test]
+fn test_auto_liftup_gameover() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(auto_liftup.system());
+    let app_state = State::new(AppState::InGame);
+    world.insert_resource(app_state);
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+    world
+        .spawn()
+        .insert(CountTimer(Timer::from_seconds(0.0, false)));
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * 5.0 + 0.1, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    assert_eq!(
+        world.get_resource::<State<AppState>>().unwrap().current(),
+        &AppState::InGame
+    );
+    world.get_resource_mut::<Time>().unwrap().update();
+    update_stage.run(&mut world);
+
+    assert_eq!(
+        world.get_resource::<State<AppState>>().unwrap().current(),
+        &AppState::GameOver
+    );
+}
+
+#[test]
 fn test_spawning_to_fixed() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
