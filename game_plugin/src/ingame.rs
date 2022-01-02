@@ -24,7 +24,8 @@ impl Plugin for IngamePlugin {
                 SystemSet::on_enter(AppState::InGame)
                     .with_system(setup_camera.system())
                     .with_system(setup_board.system())
-                    .with_system(setup_board_bottom_cover.system()),
+                    .with_system(setup_board_bottom_cover.system())
+                    .with_system(setup_chaincounter.system()),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
@@ -64,7 +65,12 @@ impl Plugin for IngamePlugin {
                             .label("stop_fall_block")
                             .after("fall_block"),
                     )
-                    .with_system(fixedprepare_to_fixed.system().after("stop_fall_block")),
+                    .with_system(
+                        fixedprepare_to_fixed
+                            .system()
+                            .label("fixedprepare_to_fixed")
+                            .after("stop_fall_block"),
+                    ),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
@@ -77,9 +83,26 @@ impl Plugin for IngamePlugin {
                 SystemSet::on_update(AppState::InGame)
                     .after("fall_set")
                     .with_system(move_cursor.system())
-                    .with_system(match_block.system())
-                    .with_system(prepare_despawn_block.system())
-                    .with_system(despawn_block.system())
+                    .with_system(match_block.system().label("match_block"))
+                    .with_system(
+                        prepare_despawn_block
+                            .system()
+                            .label("prepare_despawn_block")
+                            .after("match_block"),
+                    )
+                    .with_system(
+                        despawn_block
+                            .system()
+                            .label("despawn_block")
+                            .after("prepare_despawn_block"),
+                    )
+                    .with_system(
+                        remove_chain
+                            .system()
+                            .label("remove_chain")
+                            .after("despawn_block"),
+                    )
+                    .with_system(reset_chain_counter.system().after("despawn_block"))
                     .with_system(auto_liftup.system()),
             );
     }
@@ -127,6 +150,8 @@ struct Fall;
 struct FixedPrepare;
 struct Despawining(Timer);
 
+struct Chain(Timer);
+
 struct Bottom;
 
 #[derive(Debug)]
@@ -138,6 +163,8 @@ struct Board;
 struct BoardBottomCover;
 
 struct CountTimer(Timer);
+
+struct ChainCounter(u32);
 
 fn setup_camera(mut commands: Commands) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
@@ -303,6 +330,10 @@ fn setup_board_bottom_cover(
             ..Default::default()
         })
         .insert(BoardBottomCover);
+}
+
+fn setup_chaincounter(mut commands: Commands) {
+    commands.spawn().insert(ChainCounter(1));
 }
 
 fn move_cursor(
@@ -533,11 +564,24 @@ fn match_block(
 
 fn prepare_despawn_block(
     mut commands: Commands,
-    mut block: Query<Entity, (With<Block>, With<Matched>)>,
+    match_block: Query<(Entity, Option<&Chain>), (With<Block>, With<Matched>)>,
+    mut chain_counter: Query<&mut ChainCounter>,
 ) {
     // TODO: despawning animation
-    let combo = block.iter().collect::<Vec<_>>().len();
-    for entity in block.iter_mut() {
+    if match_block
+        .iter()
+        .collect::<Vec<_>>()
+        .iter()
+        .any(|(_, chain)| chain.is_some())
+    {
+        if let Ok(mut cc) = chain_counter.single_mut() {
+            cc.0 += 1;
+            // println!("{}", cc.0);
+        }
+    }
+
+    let combo = match_block.iter().count();
+    for (entity, _chain) in match_block.iter() {
         commands
             .entity(entity)
             .remove::<Matched>()
@@ -545,17 +589,76 @@ fn prepare_despawn_block(
     }
 }
 
+// TODO: event?
+// match_block event -> prepare_despawn_block event -> remove_chain event
+fn remove_chain(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut chain_block: Query<(Entity, Option<&mut Chain>), (With<Block>, With<Fixed>)>,
+) {
+    for (entity, ch) in chain_block.iter_mut().filter(|(_en, ch)| ch.is_some()) {
+        if let Some(mut chain) = ch {
+            chain.0.tick(Duration::from_secs_f32(time.delta_seconds()));
+            if chain.0.finished() {
+                commands.entity(entity).remove::<Chain>();
+            }
+        }
+    }
+}
+
+fn reset_chain_counter(
+    chain_block: Query<&Chain, (With<Block>, With<Chain>)>,
+    mut chain_counter: Query<&mut ChainCounter>,
+) {
+    if chain_block.iter().next().is_none() {
+        if let Ok(mut cc) = chain_counter.single_mut() {
+            cc.0 = 1;
+        }
+    }
+}
+
 fn despawn_block(
     mut commands: Commands,
     time: Res<Time>,
-    mut block: Query<(Entity, &mut Despawining), (With<Block>, With<Despawining>)>,
+    mut despawning_block: Query<
+        (Entity, &mut Despawining, &Transform),
+        (With<Block>, With<Despawining>),
+    >,
+    other_block: Query<(Entity, &Transform), (With<Block>, Without<Despawining>)>,
 ) {
-    for (entity, mut despawning) in block.iter_mut() {
+    for (despawning_entity, mut despawning, despawning_transform) in despawning_block.iter_mut() {
         despawning
             .0
             .tick(Duration::from_secs_f32(time.delta_seconds()));
         if despawning.0.just_finished() {
-            commands.entity(entity).despawn();
+            commands.entity(despawning_entity).despawn();
+            let mut chain_candidates = Vec::new();
+            for (other_entity, other_transform) in other_block.iter() {
+                if despawning_transform.translation.y < other_transform.translation.y
+                    && (despawning_transform.translation.x - other_transform.translation.x).abs()
+                        < BLOCK_SIZE / 2.0
+                {
+                    chain_candidates.push((other_entity, other_transform));
+                }
+            }
+            chain_candidates.sort_unstable_by(|(_, trans_a), (_, trans_b)| {
+                trans_a
+                    .translation
+                    .y
+                    .partial_cmp(&trans_b.translation.y)
+                    .unwrap()
+            });
+            let mut current_y = despawning_transform.translation.y;
+            for (en, tr) in chain_candidates.iter() {
+                if (tr.translation.y - BLOCK_SIZE - current_y).abs() < BLOCK_SIZE / 2.0 {
+                    commands
+                        .entity(*en)
+                        .insert(Chain(Timer::from_seconds(0.04, false)));
+                    current_y += BLOCK_SIZE;
+                } else {
+                    break;
+                }
+            }
         }
     }
 }
@@ -1876,12 +1979,101 @@ fn test_prepare_despawn_block() {
     update_stage.add_system(prepare_despawn_block.system());
 
     world.spawn().insert(Block).insert(Matched);
+    let chain_counter = world.spawn().insert(ChainCounter(1)).id();
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 0);
     assert_eq!(
         world.query::<(&Block, &Despawining)>().iter(&world).len(),
         1
     );
+    assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 1);
+}
+
+#[test]
+fn test_prepare_despawn_block_chain() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(prepare_despawn_block.system());
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Matched)
+        .insert(Chain(Timer::from_seconds(0.04, false)));
+    let chain_counter = world.spawn().insert(ChainCounter(1)).id();
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 0);
+    assert_eq!(
+        world.query::<(&Block, &Despawining)>().iter(&world).len(),
+        1
+    );
+    assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 2);
+}
+
+#[test]
+fn test_remove_chain() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(remove_chain.system());
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Fixed)
+        .insert(Chain(Timer::from_seconds(0.0, false)));
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 1);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_remove_chain_not_fixed() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(remove_chain.system());
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Matched)
+        .insert(Chain(Timer::from_seconds(0.0, false)));
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Despawining)
+        .insert(Chain(Timer::from_seconds(0.0, false)));
+
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 2);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 2);
+}
+
+#[test]
+fn test_reset_chain_counter() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(reset_chain_counter.system());
+    let chain_counter = world.spawn().insert(ChainCounter(2)).id();
+    update_stage.run(&mut world);
+    assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 1);
+}
+
+#[test]
+fn test_reset_chain_counter_not_reset() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(reset_chain_counter.system());
+    let chain_counter = world.spawn().insert(ChainCounter(2)).id();
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Chain(Timer::from_seconds(0.04, false)));
+    update_stage.run(&mut world);
+    assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 2);
 }
 
 #[test]
@@ -1895,11 +2087,81 @@ fn test_despawn_block() {
     let block = world
         .spawn()
         .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::ZERO,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
         .insert(Despawining(Timer::from_seconds(0.0, false)))
         .id();
 
     update_stage.run(&mut world);
     assert!(world.get::<Block>(block).is_none());
+}
+
+#[test]
+fn test_despawn_block_add_chain() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(despawn_block.system());
+    let time = Time::default();
+    world.insert_resource(time);
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::ZERO,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Despawining(Timer::from_seconds(0.0, false)));
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, BLOCK_SIZE, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, BLOCK_SIZE * 3.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, BLOCK_SIZE * -1.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 1);
 }
 
 #[test]
