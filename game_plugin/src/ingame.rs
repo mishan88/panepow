@@ -80,8 +80,7 @@ impl Plugin for IngamePlugin {
                     .with_system(match_block.system())
                     .with_system(prepare_despawn_block.system())
                     .with_system(despawn_block.system())
-                    .with_system(auto_liftup.system())
-                    .with_system(gameover_count.system()),
+                    .with_system(auto_liftup.system()),
             );
     }
 }
@@ -720,6 +719,8 @@ fn fixedprepare_to_fixed(
 
 fn auto_liftup(
     time: Res<Time>,
+    mut state: ResMut<State<AppState>>,
+    mut count_timer: Query<&mut CountTimer>,
     mut query_set: QuerySet<(
         Query<
             Entity,
@@ -731,22 +732,30 @@ fn auto_liftup(
                 With<Block>,
             ),
         >,
-        Query<(&Transform, &Sprite), (With<Fixed>, With<Block>)>,
+        Query<&Transform, (With<Fixed>, With<Block>)>,
         Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
     )>,
 ) {
-    let max_bl = query_set
-        .q1()
-        .iter()
-        .max_by(|(a_tr, _a_sp), (b_tr, _b_sp)| {
-            a_tr.translation.y.partial_cmp(&b_tr.translation.y).unwrap()
-        });
-    if let Some((max_tr, max_sp)) = max_bl {
-        if max_tr.translation.y + max_sp.size.y / 2.0 < BLOCK_SIZE * 6.0
-            && query_set.q0().iter().next().is_none()
-        {
-            for mut transform in query_set.q2_mut().iter_mut() {
-                transform.translation.y += time.delta_seconds() * 10.0;
+    if let Ok(mut count_timer) = count_timer.single_mut() {
+        count_timer
+            .0
+            .tick(Duration::from_secs_f32(time.delta_seconds()));
+        let max_bl = query_set
+            .q1()
+            .iter()
+            .max_by(|a_tr, b_tr| a_tr.translation.y.partial_cmp(&b_tr.translation.y).unwrap());
+        if let Some(max_tr) = max_bl {
+            if count_timer.0.finished() {
+                // lift up
+                if max_tr.translation.y > BLOCK_SIZE * 5.0 {
+                    state.set(AppState::GameOver).unwrap();
+                }
+                if max_tr.translation.y < BLOCK_SIZE * 5.0 && query_set.q0().iter().next().is_none()
+                {
+                    for mut transform in query_set.q2_mut().iter_mut() {
+                        transform.translation.y += time.delta_seconds() * 10.0;
+                    }
+                }
             }
         }
     }
@@ -824,31 +833,6 @@ fn generate_spawning_block(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-fn gameover_count(
-    time: Res<Time>,
-    mut state: ResMut<State<AppState>>,
-    mut timer: Query<&mut CountTimer, With<CountTimer>>,
-    block: Query<&Transform, With<Block>>,
-) {
-    let mut is_reach_block = false;
-    for transform in block.iter() {
-        if transform.translation.y + BLOCK_SIZE / 2.0 > 300.0 {
-            is_reach_block = true;
-        }
-    }
-
-    if is_reach_block {
-        if let Ok(mut count_timer) = timer.single_mut() {
-            count_timer
-                .0
-                .tick(Duration::from_secs_f32(time.delta_seconds()));
-            if count_timer.0.just_finished() {
-                state.set(AppState::GameOver).unwrap();
             }
         }
     }
@@ -2387,9 +2371,14 @@ fn test_auto_liftup() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(auto_liftup.system());
+    let app_state = State::new(AppState::InGame);
+    world.insert_resource(app_state);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
+    world
+        .spawn()
+        .insert(CountTimer(Timer::from_seconds(0.0, false)));
 
     let block = world
         .spawn()
@@ -2405,6 +2394,7 @@ fn test_auto_liftup() {
         .insert(Fixed)
         .id();
     assert_eq!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
+
     world.get_resource_mut::<Time>().unwrap().update();
     update_stage.run(&mut world);
     assert_ne!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
@@ -2483,40 +2473,4 @@ fn test_generate_spawning_block() {
     });
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 6);
-}
-
-#[ignore = "how to finish timer?"]
-#[test]
-fn test_gameover_count() {
-    let mut world = World::default();
-    let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(gameover_count.system());
-    let mut time = Time::default();
-    time.update();
-    world.insert_resource(time);
-    let app_state = State::new(AppState::InGame);
-    world.insert_resource(app_state);
-
-    world.spawn().insert(Block).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-        transform: Transform {
-            translation: Vec3::new(0.0, 400.0, 0.0),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-    world
-        .spawn()
-        .insert(CountTimer(Timer::from_seconds(0.1, false)));
-    assert_eq!(
-        world.get_resource::<State<AppState>>().unwrap().current(),
-        &AppState::InGame
-    );
-    world.get_resource_mut::<Time>().unwrap().update();
-    update_stage.run(&mut world);
-
-    assert_eq!(
-        world.get_resource::<State<AppState>>().unwrap().current(),
-        &AppState::GameOver
-    );
 }
