@@ -150,7 +150,7 @@ struct Fall;
 struct FixedPrepare;
 struct Despawining(Timer);
 
-struct Chain;
+struct Chain(Timer);
 
 struct Bottom;
 
@@ -576,7 +576,7 @@ fn prepare_despawn_block(
     {
         if let Ok(mut cc) = chain_counter.single_mut() {
             cc.0 += 1;
-            dbg!(cc.0);
+            // println!("{}", cc.0);
         }
     }
 
@@ -589,12 +589,20 @@ fn prepare_despawn_block(
     }
 }
 
+// TODO: event?
+// match_block event -> prepare_despawn_block event -> remove_chain event
 fn remove_chain(
     mut commands: Commands,
-    chain_block: Query<(Entity, Option<&Chain>), (With<Block>, With<Fixed>)>,
+    time: Res<Time>,
+    mut chain_block: Query<(Entity, Option<&mut Chain>), (With<Block>, With<Fixed>)>,
 ) {
-    for (entity, _ch) in chain_block.iter().filter(|(_en, ch)| ch.is_some()) {
-        commands.entity(entity).remove::<Chain>();
+    for (entity, ch) in chain_block.iter_mut().filter(|(_en, ch)| ch.is_some()) {
+        if let Some(mut chain) = ch {
+            chain.0.tick(Duration::from_secs_f32(time.delta_seconds()));
+            if chain.0.finished() {
+                commands.entity(entity).remove::<Chain>();
+            }
+        }
     }
 }
 
@@ -643,7 +651,9 @@ fn despawn_block(
             let mut current_y = despawning_transform.translation.y;
             for (en, tr) in chain_candidates.iter() {
                 if (tr.translation.y - BLOCK_SIZE - current_y).abs() < BLOCK_SIZE / 2.0 {
-                    commands.entity(*en).insert(Chain);
+                    commands
+                        .entity(*en)
+                        .insert(Chain(Timer::from_seconds(0.04, false)));
                     current_y += BLOCK_SIZE;
                 } else {
                     break;
@@ -1985,7 +1995,11 @@ fn test_prepare_despawn_block_chain() {
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(prepare_despawn_block.system());
 
-    world.spawn().insert(Block).insert(Matched).insert(Chain);
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Matched)
+        .insert(Chain(Timer::from_seconds(0.04, false)));
     let chain_counter = world.spawn().insert(ChainCounter(1)).id();
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 0);
@@ -2001,7 +2015,14 @@ fn test_remove_chain() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(remove_chain.system());
-    world.spawn().insert(Block).insert(Fixed).insert(Chain);
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Fixed)
+        .insert(Chain(Timer::from_seconds(0.0, false)));
     assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 1);
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 0);
@@ -2012,8 +2033,19 @@ fn test_remove_chain_not_fixed() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(remove_chain.system());
-    world.spawn().insert(Block).insert(Matched).insert(Chain);
-    world.spawn().insert(Block).insert(Despawining).insert(Chain);
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Matched)
+        .insert(Chain(Timer::from_seconds(0.0, false)));
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Despawining)
+        .insert(Chain(Timer::from_seconds(0.0, false)));
 
     assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 2);
     update_stage.run(&mut world);
@@ -2036,7 +2068,10 @@ fn test_reset_chain_counter_not_reset() {
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(reset_chain_counter.system());
     let chain_counter = world.spawn().insert(ChainCounter(2)).id();
-    world.spawn().insert(Block).insert(Chain);
+    world
+        .spawn()
+        .insert(Block)
+        .insert(Chain(Timer::from_seconds(0.04, false)));
     update_stage.run(&mut world);
     assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 2);
 }
