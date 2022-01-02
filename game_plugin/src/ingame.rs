@@ -556,7 +556,7 @@ fn prepare_despawn_block(
             cc.0 += 1;
         }
     }
-    let combo = block.iter().collect::<Vec<_>>().len();
+    let combo = block.iter().count();
     for (entity, _chain) in block.iter_mut() {
         commands
             .entity(entity)
@@ -1986,7 +1986,7 @@ fn test_despawn_block_add_chain() {
     let time = Time::default();
     world.insert_resource(time);
 
-    let block = world
+    world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
@@ -1997,8 +1997,7 @@ fn test_despawn_block_add_chain() {
             },
             ..Default::default()
         })
-        .insert(Despawining(Timer::from_seconds(0.0, false)))
-        .id();
+        .insert(Despawining(Timer::from_seconds(0.0, false)));
     world
         .spawn()
         .insert(Block)
