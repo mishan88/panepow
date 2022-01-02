@@ -568,14 +568,43 @@ fn prepare_despawn_block(
 fn despawn_block(
     mut commands: Commands,
     time: Res<Time>,
-    mut block: Query<(Entity, &mut Despawining), (With<Block>, With<Despawining>)>,
+    mut despawning_block: Query<
+        (Entity, &mut Despawining, &Transform),
+        (With<Block>, With<Despawining>),
+    >,
+    other_block: Query<(Entity, &Transform), (With<Block>, Without<Despawining>)>,
 ) {
-    for (entity, mut despawning) in block.iter_mut() {
+    for (despawning_entity, mut despawning, despawning_transform) in despawning_block.iter_mut() {
         despawning
             .0
             .tick(Duration::from_secs_f32(time.delta_seconds()));
         if despawning.0.just_finished() {
-            commands.entity(entity).despawn();
+            commands.entity(despawning_entity).despawn();
+            let mut chain_candidates = Vec::new();
+            for (other_entity, other_transform) in other_block.iter() {
+                if despawning_transform.translation.y < other_transform.translation.y
+                    && (despawning_transform.translation.x - other_transform.translation.x).abs()
+                        < BLOCK_SIZE / 2.0
+                {
+                    chain_candidates.push((other_entity, other_transform));
+                }
+            }
+            chain_candidates.sort_unstable_by(|(_, trans_a), (_, trans_b)| {
+                trans_a
+                    .translation
+                    .y
+                    .partial_cmp(&trans_b.translation.y)
+                    .unwrap()
+            });
+            let mut current_y = despawning_transform.translation.y;
+            for (en, tr) in chain_candidates.iter() {
+                if (tr.translation.y - BLOCK_SIZE - current_y) < BLOCK_SIZE / 2.0 {
+                    commands.entity(*en).insert(Chain);
+                    current_y += BLOCK_SIZE;
+                } else {
+                    break;
+                }
+            }
         }
     }
 }
@@ -1934,11 +1963,82 @@ fn test_despawn_block() {
     let block = world
         .spawn()
         .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::ZERO,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
         .insert(Despawining(Timer::from_seconds(0.0, false)))
         .id();
 
     update_stage.run(&mut world);
     assert!(world.get::<Block>(block).is_none());
+}
+
+#[test]
+fn test_despawn_block_add_chain() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(despawn_block.system());
+    let time = Time::default();
+    world.insert_resource(time);
+
+    let block = world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::ZERO,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Despawining(Timer::from_seconds(0.0, false)))
+        .id();
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, BLOCK_SIZE, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, BLOCK_SIZE * 3.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+
+    world
+        .spawn()
+        .insert(Block)
+        .insert_bundle(SpriteBundle {
+            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
+            transform: Transform {
+                translation: Vec3::new(0.0, BLOCK_SIZE * -1.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Fixed);
+
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 1);
 }
 
 #[test]
