@@ -65,7 +65,12 @@ impl Plugin for IngamePlugin {
                             .label("stop_fall_block")
                             .after("fall_block"),
                     )
-                    .with_system(fixedprepare_to_fixed.system().after("stop_fall_block")),
+                    .with_system(
+                        fixedprepare_to_fixed
+                            .system()
+                            .label("fixedprepare_to_fixed")
+                            .after("stop_fall_block"),
+                    ),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
@@ -78,9 +83,26 @@ impl Plugin for IngamePlugin {
                 SystemSet::on_update(AppState::InGame)
                     .after("fall_set")
                     .with_system(move_cursor.system())
-                    .with_system(match_block.system())
-                    .with_system(prepare_despawn_block.system())
-                    .with_system(despawn_block.system())
+                    .with_system(match_block.system().label("match_block"))
+                    .with_system(
+                        prepare_despawn_block
+                            .system()
+                            .label("prepare_despawn_block")
+                            .after("match_block"),
+                    )
+                    .with_system(
+                        despawn_block
+                            .system()
+                            .label("despawn_block")
+                            .after("prepare_despawn_block"),
+                    )
+                    .with_system(
+                        remove_chain
+                            .system()
+                            .label("remove_chain")
+                            .after("despawn_block"),
+                    )
+                    .with_system(reset_chain_counter.system().after("despawn_block"))
                     .with_system(auto_liftup.system()),
             );
     }
@@ -543,7 +565,6 @@ fn match_block(
 fn prepare_despawn_block(
     mut commands: Commands,
     match_block: Query<(Entity, Option<&Chain>), (With<Block>, With<Matched>)>,
-    notmatch_block: Query<(Entity, Option<&Chain>), (With<Block>, Without<Matched>)>,
     mut chain_counter: Query<&mut ChainCounter>,
 ) {
     // TODO: despawning animation
@@ -555,11 +576,8 @@ fn prepare_despawn_block(
     {
         if let Ok(mut cc) = chain_counter.single_mut() {
             cc.0 += 1;
+            dbg!(cc.0);
         }
-    }
-    // remove chain tag
-    for (entity, _chain) in notmatch_block.iter().filter(|(_en, ch)| ch.is_some()) {
-        commands.entity(entity).remove::<Chain>();
     }
 
     let combo = match_block.iter().count();
@@ -568,6 +586,26 @@ fn prepare_despawn_block(
             .entity(entity)
             .remove::<Matched>()
             .insert(Despawining(Timer::from_seconds(combo as f32 * 0.3, false)));
+    }
+}
+
+fn remove_chain(
+    mut commands: Commands,
+    chain_block: Query<(Entity, Option<&Chain>), (With<Block>, With<Fixed>)>,
+) {
+    for (entity, _ch) in chain_block.iter().filter(|(_en, ch)| ch.is_some()) {
+        commands.entity(entity).remove::<Chain>();
+    }
+}
+
+fn reset_chain_counter(
+    chain_block: Query<&Chain, (With<Block>, With<Chain>)>,
+    mut chain_counter: Query<&mut ChainCounter>,
+) {
+    if chain_block.iter().next().is_none() {
+        if let Ok(mut cc) = chain_counter.single_mut() {
+            cc.0 = 1;
+        }
     }
 }
 
@@ -1959,16 +1997,48 @@ fn test_prepare_despawn_block_chain() {
 }
 
 #[test]
-fn test_prepare_despawn_block_remove_chain() {
+fn test_remove_chain() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(prepare_despawn_block.system());
-
+    update_stage.add_system(remove_chain.system());
     world.spawn().insert(Block).insert(Fixed).insert(Chain);
-    let _chain_counter = world.spawn().insert(ChainCounter(1)).id();
     assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 1);
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 0);
+}
+
+#[test]
+fn test_remove_chain_not_fixed() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(remove_chain.system());
+    world.spawn().insert(Block).insert(Matched).insert(Chain);
+    world.spawn().insert(Block).insert(Despawining).insert(Chain);
+
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 2);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 2);
+}
+
+#[test]
+fn test_reset_chain_counter() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(reset_chain_counter.system());
+    let chain_counter = world.spawn().insert(ChainCounter(2)).id();
+    update_stage.run(&mut world);
+    assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 1);
+}
+
+#[test]
+fn test_reset_chain_counter_not_reset() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(reset_chain_counter.system());
+    let chain_counter = world.spawn().insert(ChainCounter(2)).id();
+    world.spawn().insert(Block).insert(Chain);
+    update_stage.run(&mut world);
+    assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 2);
 }
 
 #[test]
