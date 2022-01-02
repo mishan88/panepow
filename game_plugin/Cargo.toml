@@ -1,5 +1,5 @@
 [package]
-name = "panepow"
+name = "game_plugin"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,22 +11,16 @@ default = [
     "bevy/bevy_winit",
     "bevy/render",
     "bevy/png",
-    "game_plugin/default"
+    "bevy_kira_audio/ogg"
 ]
 
 native = [
     "bevy/bevy_wgpu",
-    "game_plugin/native"
 ]
-
-dev = [
-    "bevy/dynamic",
-    "native",
-]
-
 
 [dependencies]
 bevy = { version = "0.5", default-features = false }
-game_plugin = { path = "game_plugin" }
-winit = "0.24"
-
+bevy_kira_audio = "0.6"
+rand = "0.8"
+bevy_easings = "0.4"
+bevy_asset_loader = "0.6"
