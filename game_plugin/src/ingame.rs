@@ -542,11 +542,12 @@ fn match_block(
 
 fn prepare_despawn_block(
     mut commands: Commands,
-    mut block: Query<(Entity, Option<&Chain>), (With<Block>, With<Matched>)>,
+    match_block: Query<(Entity, Option<&Chain>), (With<Block>, With<Matched>)>,
+    notmatch_block: Query<(Entity, Option<&Chain>), (With<Block>, Without<Matched>)>,
     mut chain_counter: Query<&mut ChainCounter>,
 ) {
     // TODO: despawning animation
-    if block
+    if match_block
         .iter()
         .collect::<Vec<_>>()
         .iter()
@@ -556,8 +557,13 @@ fn prepare_despawn_block(
             cc.0 += 1;
         }
     }
-    let combo = block.iter().count();
-    for (entity, _chain) in block.iter_mut() {
+    // remove chain tag
+    for (entity, _chain) in notmatch_block.iter().filter(|(_en, ch)| ch.is_some()) {
+        commands.entity(entity).remove::<Chain>();
+    }
+
+    let combo = match_block.iter().count();
+    for (entity, _chain) in match_block.iter() {
         commands
             .entity(entity)
             .remove::<Matched>()
@@ -1950,6 +1956,19 @@ fn test_prepare_despawn_block_chain() {
         1
     );
     assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 2);
+}
+
+#[test]
+fn test_prepare_despawn_block_remove_chain() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(prepare_despawn_block.system());
+
+    world.spawn().insert(Block).insert(Fixed).insert(Chain);
+    let _chain_counter = world.spawn().insert(ChainCounter(1)).id();
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 1);
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 0);
 }
 
 #[test]
