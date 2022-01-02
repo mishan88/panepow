@@ -24,7 +24,8 @@ impl Plugin for IngamePlugin {
                 SystemSet::on_enter(AppState::InGame)
                     .with_system(setup_camera.system())
                     .with_system(setup_board.system())
-                    .with_system(setup_board_bottom_cover.system()),
+                    .with_system(setup_board_bottom_cover.system())
+                    .with_system(setup_chaincounter.system()),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
@@ -127,6 +128,8 @@ struct Fall;
 struct FixedPrepare;
 struct Despawining(Timer);
 
+struct Chain;
+
 struct Bottom;
 
 #[derive(Debug)]
@@ -138,6 +141,8 @@ struct Board;
 struct BoardBottomCover;
 
 struct CountTimer(Timer);
+
+struct ChainCounter(u32);
 
 fn setup_camera(mut commands: Commands) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
@@ -303,6 +308,10 @@ fn setup_board_bottom_cover(
             ..Default::default()
         })
         .insert(BoardBottomCover);
+}
+
+fn setup_chaincounter(mut commands: Commands) {
+    commands.spawn().insert(ChainCounter(1));
 }
 
 fn move_cursor(
@@ -533,11 +542,22 @@ fn match_block(
 
 fn prepare_despawn_block(
     mut commands: Commands,
-    mut block: Query<Entity, (With<Block>, With<Matched>)>,
+    mut block: Query<(Entity, Option<&Chain>), (With<Block>, With<Matched>)>,
+    mut chain_counter: Query<&mut ChainCounter>,
 ) {
     // TODO: despawning animation
+    if block
+        .iter()
+        .collect::<Vec<_>>()
+        .iter()
+        .any(|(_, chain)| chain.is_some())
+    {
+        if let Ok(mut cc) = chain_counter.single_mut() {
+            cc.0 += 1;
+        }
+    }
     let combo = block.iter().collect::<Vec<_>>().len();
-    for entity in block.iter_mut() {
+    for (entity, _chain) in block.iter_mut() {
         commands
             .entity(entity)
             .remove::<Matched>()
@@ -1876,12 +1896,31 @@ fn test_prepare_despawn_block() {
     update_stage.add_system(prepare_despawn_block.system());
 
     world.spawn().insert(Block).insert(Matched);
+    let chain_counter = world.spawn().insert(ChainCounter(1)).id();
     update_stage.run(&mut world);
     assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 0);
     assert_eq!(
         world.query::<(&Block, &Despawining)>().iter(&world).len(),
         1
     );
+    assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 1);
+}
+
+#[test]
+fn test_prepare_despawn_block_chain() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(prepare_despawn_block.system());
+
+    world.spawn().insert(Block).insert(Matched).insert(Chain);
+    let chain_counter = world.spawn().insert(ChainCounter(1)).id();
+    update_stage.run(&mut world);
+    assert_eq!(world.query::<(&Block, &Matched)>().iter(&world).len(), 0);
+    assert_eq!(
+        world.query::<(&Block, &Despawining)>().iter(&world).len(),
+        1
+    );
+    assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 2);
 }
 
 #[test]
