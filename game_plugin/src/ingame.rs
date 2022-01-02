@@ -535,13 +535,13 @@ fn prepare_despawn_block(
     mut commands: Commands,
     mut block: Query<Entity, (With<Block>, With<Matched>)>,
 ) {
-    // TODO: duration should be `matched_blocks * some_duration`
     // TODO: despawning animation
+    let combo = block.iter().collect::<Vec<_>>().len();
     for entity in block.iter_mut() {
         commands
             .entity(entity)
             .remove::<Matched>()
-            .insert(Despawining(Timer::from_seconds(1.0, false)));
+            .insert(Despawining(Timer::from_seconds(combo as f32 * 0.3, false)));
     }
 }
 
