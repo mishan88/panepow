@@ -642,7 +642,7 @@ fn despawn_block(
             });
             let mut current_y = despawning_transform.translation.y;
             for (en, tr) in chain_candidates.iter() {
-                if (tr.translation.y - BLOCK_SIZE - current_y) < BLOCK_SIZE / 2.0 {
+                if (tr.translation.y - BLOCK_SIZE - current_y).abs() < BLOCK_SIZE / 2.0 {
                     commands.entity(*en).insert(Chain);
                     current_y += BLOCK_SIZE;
                 } else {
