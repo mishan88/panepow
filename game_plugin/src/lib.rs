@@ -1,9 +1,11 @@
+mod actions;
 mod ingame;
 mod loading;
 mod menu;
 use bevy::prelude::AppBuilder;
 use bevy::prelude::*;
 
+use crate::actions::ActionPlugin;
 use crate::ingame::IngamePlugin;
 use crate::loading::LoadingPlugin;
 use crate::menu::MenuPlugin;
@@ -23,6 +25,7 @@ impl Plugin for GamePlugin {
         app.add_state(AppState::Loading)
             .add_plugin(LoadingPlugin)
             .add_plugin(MenuPlugin)
-            .add_plugin(IngamePlugin);
+            .add_plugin(IngamePlugin)
+            .add_plugin(ActionPlugin);
     }
 }

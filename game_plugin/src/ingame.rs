@@ -9,6 +9,7 @@ use bevy_easings::*;
 use rand::prelude::*;
 
 use crate::{
+    actions::MoveActions,
     loading::{
         BlockMaterials, BoardBottomCoverMaterials, BoardMaterials, BottomMaterials, CursorMaterials,
     },
@@ -217,6 +218,7 @@ fn setup_board(
     let relative_x = board_transform.translation.x - board_sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
     let relative_y = board_transform.translation.y - board_sprite.size.y / 2.0 + BLOCK_SIZE / 2.0;
     let bottom_y = board_transform.translation.y - board_sprite.size.y / 2.0 - BLOCK_SIZE / 2.0;
+    block_colors.shuffle(&mut rng);
 
     if let Some(pattern) = patterns.iter().choose(&mut rng) {
         for (row_idx, row) in pattern.iter().rev().enumerate() {
@@ -336,27 +338,29 @@ fn setup_chaincounter(mut commands: Commands) {
     commands.spawn().insert(ChainCounter(1));
 }
 
-fn move_cursor(
-    keyboard_input: Res<Input<KeyCode>>,
-    mut cursor: Query<&mut Transform, With<Cursor>>,
-) {
+fn move_cursor(actions: Res<MoveActions>, mut cursor: Query<&mut Transform, With<Cursor>>) {
+    if actions.cursor_movement.is_none() {
+        return;
+    }
     if let Ok(mut transform) = cursor.single_mut() {
-        if keyboard_input.just_pressed(KeyCode::Left) && transform.translation.x > -75.0 {
-            transform.translation.x -= BLOCK_SIZE;
+        let movement = Vec3::new(
+            actions.cursor_movement.unwrap().x * BLOCK_SIZE,
+            actions.cursor_movement.unwrap().y * BLOCK_SIZE,
+            0.0,
+        );
+        if transform.translation.x + movement.x > -125.0
+            && transform.translation.x + movement.x < 125.0
+        {
+            transform.translation.x += movement.x;
         }
-        if keyboard_input.just_pressed(KeyCode::Right) && transform.translation.x < 75.0 {
-            transform.translation.x += BLOCK_SIZE;
-        }
-        if keyboard_input.just_pressed(KeyCode::Up) && transform.translation.y < 300.0 {
-            transform.translation.y += BLOCK_SIZE;
-        }
-        if keyboard_input.just_pressed(KeyCode::Down) && transform.translation.y > -300.0 {
-            transform.translation.y -= BLOCK_SIZE;
+        if transform.translation.y + movement.y < 300.0
+            && transform.translation.y + movement.y > -300.0
+        {
+            transform.translation.y += movement.y;
         }
     }
 }
 
-// TODO: if there is no fixed block -> check block and cancel tag.
 fn move_tag_block(
     keyboard_input: Res<Input<KeyCode>>,
     mut commands: Commands,
@@ -987,6 +991,7 @@ fn test_left_move_cursor() {
         },
         ..Default::default()
     });
+    world.insert_resource(MoveActions::default());
 
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
     assert_eq!(
@@ -999,12 +1004,11 @@ fn test_left_move_cursor() {
             .translation,
         Vec3::ZERO
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Left);
-    world.insert_resource(input);
-
+    world
+        .get_resource_mut::<MoveActions>()
+        .unwrap()
+        .cursor_movement = Some(Vec2::new(-1.0, 0.0));
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1015,11 +1019,7 @@ fn test_left_move_cursor() {
             .translation,
         Vec3::new(-1.0 * BLOCK_SIZE, 0.0, 0.0)
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Left);
-    world.insert_resource(input);
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1031,11 +1031,7 @@ fn test_left_move_cursor() {
         Vec3::new(-2.0 * BLOCK_SIZE, 0.0, 0.0)
     );
     // can't move left more
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Left);
-    world.insert_resource(input);
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1062,6 +1058,7 @@ fn test_right_move_cursor() {
         },
         ..Default::default()
     });
+    world.insert_resource(MoveActions::default());
 
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
     assert_eq!(
@@ -1074,10 +1071,10 @@ fn test_right_move_cursor() {
             .translation,
         Vec3::ZERO
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Right);
-    world.insert_resource(input);
-
+    world
+        .get_resource_mut::<MoveActions>()
+        .unwrap()
+        .cursor_movement = Some(Vec2::new(1.0, 0.0));
     update_stage.run(&mut world);
     assert_eq!(
         world
@@ -1089,10 +1086,6 @@ fn test_right_move_cursor() {
             .translation,
         Vec3::new(BLOCK_SIZE, 0.0, 0.0)
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Right);
-    world.insert_resource(input);
-
     update_stage.run(&mut world);
     assert_eq!(
         world
@@ -1105,10 +1098,6 @@ fn test_right_move_cursor() {
         Vec3::new(2.0 * BLOCK_SIZE, 0.0, 0.0)
     );
     // can't move right more
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Right);
-    world.insert_resource(input);
-
     update_stage.run(&mut world);
     assert_eq!(
         world
@@ -1137,6 +1126,7 @@ fn test_down_move_cursor() {
         },
         ..Default::default()
     });
+    world.insert_resource(MoveActions::default());
 
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
     assert_eq!(
@@ -1149,12 +1139,12 @@ fn test_down_move_cursor() {
             .translation,
         Vec3::ZERO
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Down);
-    world.insert_resource(input);
+    world
+        .get_resource_mut::<MoveActions>()
+        .unwrap()
+        .cursor_movement = Some(Vec2::new(0.0, -1.0));
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1167,9 +1157,6 @@ fn test_down_move_cursor() {
     );
 
     for _ in 0..7 {
-        let mut input = Input::<KeyCode>::default();
-        input.press(KeyCode::Down);
-        world.insert_resource(input);
         update_stage.run(&mut world);
     }
     assert_eq!(
@@ -1180,7 +1167,7 @@ fn test_down_move_cursor() {
             .unwrap()
             .1
             .translation,
-        Vec3::new(0.0, -6.0 * BLOCK_SIZE, 0.0)
+        Vec3::new(0.0, -5.0 * BLOCK_SIZE, 0.0)
     );
 }
 
@@ -1199,6 +1186,7 @@ fn test_up_move_cursor() {
         },
         ..Default::default()
     });
+    world.insert_resource(MoveActions::default());
 
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
     assert_eq!(
@@ -1211,9 +1199,10 @@ fn test_up_move_cursor() {
             .translation,
         Vec3::ZERO
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Up);
-    world.insert_resource(input);
+    world
+        .get_resource_mut::<MoveActions>()
+        .unwrap()
+        .cursor_movement = Some(Vec2::new(0.0, 1.0));
 
     update_stage.run(&mut world);
     assert_eq!(
@@ -1228,13 +1217,9 @@ fn test_up_move_cursor() {
     );
 
     for _ in 0..7 {
-        let mut input = Input::<KeyCode>::default();
-        input.press(KeyCode::Up);
-        world.insert_resource(input);
         update_stage.run(&mut world);
     }
 
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1243,7 +1228,7 @@ fn test_up_move_cursor() {
             .unwrap()
             .1
             .translation,
-        Vec3::new(0.0, 6.0 * BLOCK_SIZE, 0.0)
+        Vec3::new(0.0, 5.0 * BLOCK_SIZE, 0.0)
     );
 }
 
