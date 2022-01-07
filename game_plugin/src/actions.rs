@@ -5,15 +5,30 @@ pub struct ActionPlugin;
 
 impl Plugin for ActionPlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.init_resource::<MoveActions>().add_system_set(
-            SystemSet::on_update(AppState::InGame).with_system(set_movement_actions.system()),
-        );
+        app.init_resource::<MoveActions>()
+            .init_resource::<SwapAction>()
+            .init_resource::<LiftAction>()
+            .add_system_set(
+                SystemSet::on_update(AppState::InGame)
+                    .with_system(set_movement_actions.system())
+                    .with_system(set_swap_action.system())
+                    .with_system(set_lift_action.system()),
+            );
     }
 }
 
 #[derive(Default)]
 pub struct MoveActions {
     pub cursor_movement: Option<Vec2>,
+    pub reinput_timer: Timer,
+}
+
+#[derive(Default)]
+pub struct SwapAction(pub bool);
+
+#[derive(Default)]
+pub struct LiftAction {
+    pub lift: bool,
     pub reinput_timer: Timer,
 }
 
@@ -27,7 +42,7 @@ fn set_movement_actions(
 ) {
     actions
         .reinput_timer
-        .tick(std::time::Duration::from_secs_f32(time.delta_seconds()));
+        .tick(Duration::from_secs_f32(time.delta_seconds()));
     if GameControl::Up.just_released(&keyboard_input)
         || GameControl::Up.pressed(&keyboard_input)
         || GameControl::Left.just_released(&keyboard_input)
@@ -107,13 +122,44 @@ fn set_movement_actions(
     }
 }
 
+fn set_swap_action(mut actions: ResMut<SwapAction>, keyboard_input: Res<Input<KeyCode>>) {
+    if GameControl::Swap.just_pressed(&keyboard_input) {
+        actions.0 = true;
+    } else {
+        actions.0 = false;
+    }
+}
+
+fn set_lift_action(
+    mut actions: ResMut<LiftAction>,
+    keyboard_input: Res<Input<KeyCode>>,
+    time: Res<Time>,
+) {
+    actions
+        .reinput_timer
+        .tick(Duration::from_secs_f32(time.delta_seconds()));
+    if GameControl::ManualLift.pressed(&keyboard_input) {
+        if GameControl::ManualLift.just_pressed(&keyboard_input)
+            || actions.reinput_timer.just_finished()
+        {
+            actions.lift = true;
+            actions
+                .reinput_timer
+                .set_duration(Duration::from_secs_f32(REINPUT_DURATION));
+            actions.reinput_timer.reset();
+        }
+    } else {
+        actions.lift = false;
+    }
+}
+
 enum GameControl {
     Up,
     Down,
     Left,
     Right,
     Swap,
-    Lift,
+    ManualLift,
 }
 
 impl GameControl {
@@ -139,7 +185,7 @@ impl GameControl {
                 keyboard_input.just_released(KeyCode::F)
                     || keyboard_input.just_released(KeyCode::Space)
             }
-            GameControl::Lift => {
+            GameControl::ManualLift => {
                 keyboard_input.just_released(KeyCode::B)
                     || keyboard_input.just_released(KeyCode::Return)
             }
@@ -163,7 +209,7 @@ impl GameControl {
             GameControl::Swap => {
                 keyboard_input.pressed(KeyCode::F) || keyboard_input.pressed(KeyCode::Space)
             }
-            GameControl::Lift => {
+            GameControl::ManualLift => {
                 keyboard_input.pressed(KeyCode::B) || keyboard_input.pressed(KeyCode::Return)
             }
         }
@@ -190,7 +236,7 @@ impl GameControl {
                 keyboard_input.just_pressed(KeyCode::F)
                     || keyboard_input.just_pressed(KeyCode::Space)
             }
-            GameControl::Lift => {
+            GameControl::ManualLift => {
                 keyboard_input.just_pressed(KeyCode::B)
                     || keyboard_input.just_pressed(KeyCode::Return)
             }
@@ -279,4 +325,38 @@ fn test_movement_actions() {
             .duration(),
         Duration::from_secs_f32(FIRST_REINPUT_DURATION)
     );
+}
+
+#[test]
+fn test_swap_action() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(set_swap_action.system());
+
+    world.insert_resource(SwapAction::default());
+    assert_eq!(world.get_resource::<SwapAction>().unwrap().0, false);
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Space);
+    world.insert_resource(input);
+    update_stage.run(&mut world);
+    assert_eq!(world.get_resource::<SwapAction>().unwrap().0, true);
+}
+
+#[test]
+fn test_lift_action() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(set_lift_action.system());
+
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+
+    world.insert_resource(LiftAction::default());
+    assert_eq!(world.get_resource::<LiftAction>().unwrap().lift, false);
+    let mut input = Input::<KeyCode>::default();
+    input.press(KeyCode::Return);
+    world.insert_resource(input);
+    update_stage.run(&mut world);
+    assert_eq!(world.get_resource::<LiftAction>().unwrap().lift, true);
 }

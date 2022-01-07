@@ -9,7 +9,7 @@ use bevy_easings::*;
 use rand::prelude::*;
 
 use crate::{
-    actions::MoveActions,
+    actions::{MoveActions, SwapAction},
     loading::{
         BlockMaterials, BoardBottomCoverMaterials, BoardMaterials, BottomMaterials, CursorMaterials,
     },
@@ -362,12 +362,12 @@ fn move_cursor(actions: Res<MoveActions>, mut cursor: Query<&mut Transform, With
 }
 
 fn move_tag_block(
-    keyboard_input: Res<Input<KeyCode>>,
+    action: Res<SwapAction>,
     mut commands: Commands,
     cursor: Query<&Transform, With<Cursor>>,
     mut block: Query<(Entity, &Transform, Option<&Fixed>), With<Block>>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::Space) {
+    if action.0 {
         if let Ok(cursor_transform) = cursor.single() {
             let x = cursor_transform.translation.x;
             let left_x = x - BLOCK_SIZE / 2.0;
@@ -433,17 +433,6 @@ fn move_tag_block(
                 // no fixed
                 _ => {}
             }
-        }
-    }
-    if keyboard_input.just_pressed(KeyCode::A) {
-        println!("-------------------");
-        for (block_entity, transform, fixed) in block.iter() {
-            println!(
-                "{}: {}: {:?}",
-                block_entity.id(),
-                transform.translation,
-                fixed
-            );
         }
     }
 }
@@ -1284,14 +1273,10 @@ fn test_move_tag_block_both_fix() {
         .insert(BlockColor::Blue)
         .insert(Fixed);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
-
+    world.insert_resource(SwapAction(true));
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 2);
 }
@@ -1335,14 +1320,10 @@ fn test_move_tag_block_left_one_fix() {
         .insert(BlockColor::Red)
         .insert(Fixed);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
-
+    world.insert_resource(SwapAction(true));
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 1);
 }
 
@@ -1385,14 +1366,10 @@ fn test_move_tag_block_right_one_fix() {
         .insert(BlockColor::Red)
         .insert(Fixed);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
-
+    world.insert_resource(SwapAction(true));
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 1);
 }
 
@@ -1447,14 +1424,11 @@ fn test_move_tag_block_there_is_collide() {
         .insert(BlockColor::Red)
         .insert(Fixed);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
+    world.insert_resource(SwapAction(true));
 
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 0);
 }
 
@@ -1509,14 +1483,11 @@ fn test_move_tag_block_not_fixed_block() {
         })
         .insert(BlockColor::Blue);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
+    world.insert_resource(SwapAction(true));
 
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 0);
 }
