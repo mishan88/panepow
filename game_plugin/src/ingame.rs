@@ -103,8 +103,24 @@ impl Plugin for IngamePlugin {
                             .label("remove_chain")
                             .after("despawn_block"),
                     )
-                    .with_system(reset_chain_counter.system().after("despawn_block"))
-                    .with_system(auto_liftup.system()),
+                    .with_system(
+                        reset_chain_counter
+                            .system()
+                            .label("reset_chain_counter")
+                            .after("despawn_block"),
+                    )
+                    .with_system(
+                        check_game_over
+                            .system()
+                            .label("check_game_over")
+                            .after("reset_chain_counter"),
+                    )
+                    .with_system(
+                        auto_liftup
+                            .system()
+                            .label("auto_liftup")
+                            .after("check_game_over"),
+                    ),
             );
     }
 }
@@ -813,9 +829,25 @@ fn fixedprepare_to_fixed(
     }
 }
 
+fn check_game_over(
+    mut state: ResMut<State<AppState>>,
+    count_timer: Query<&CountTimer>,
+    block: Query<&Transform, With<Block>>,
+) {
+    if let Ok(count_timer) = count_timer.single() {
+        let max_height_block = block
+            .iter()
+            .max_by(|a_tr, b_tr| a_tr.translation.y.partial_cmp(&b_tr.translation.y).unwrap());
+        if let Some(max_tr) = max_height_block {
+            if count_timer.0.finished() && max_tr.translation.y > BLOCK_SIZE * 5.0 {
+                state.set(AppState::GameOver).unwrap();
+            }
+        }
+    }
+}
+
 fn auto_liftup(
     time: Res<Time>,
-    mut state: ResMut<State<AppState>>,
     mut count_timer: Query<&mut CountTimer>,
     mut query_set: QuerySet<(
         Query<
@@ -828,7 +860,6 @@ fn auto_liftup(
                 With<Block>,
             ),
         >,
-        Query<&Transform, (With<Fixed>, With<Block>)>,
         Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
     )>,
 ) {
@@ -836,22 +867,9 @@ fn auto_liftup(
         count_timer
             .0
             .tick(Duration::from_secs_f32(time.delta_seconds()));
-        let max_bl = query_set
-            .q1()
-            .iter()
-            .max_by(|a_tr, b_tr| a_tr.translation.y.partial_cmp(&b_tr.translation.y).unwrap());
-        if let Some(max_tr) = max_bl {
-            if count_timer.0.finished() {
-                // lift up
-                if max_tr.translation.y > BLOCK_SIZE * 5.0 {
-                    state.set(AppState::GameOver).unwrap();
-                }
-                if max_tr.translation.y < BLOCK_SIZE * 5.0 && query_set.q0().iter().next().is_none()
-                {
-                    for mut transform in query_set.q2_mut().iter_mut() {
-                        transform.translation.y += time.delta_seconds() * 10.0;
-                    }
-                }
+        if count_timer.0.finished() && query_set.q0().iter().next().is_none() {
+            for mut transform in query_set.q1_mut().iter_mut() {
+                transform.translation.y += time.delta_seconds() * 10.0;
             }
         }
     }
@@ -2589,8 +2607,6 @@ fn test_auto_liftup() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(auto_liftup.system());
-    let app_state = State::new(AppState::InGame);
-    world.insert_resource(app_state);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2623,8 +2639,6 @@ fn test_auto_liftup_stop_with_timer() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(auto_liftup.system());
-    let app_state = State::new(AppState::InGame);
-    world.insert_resource(app_state);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2657,8 +2671,6 @@ fn test_auto_liftup_stop_with_fall_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(auto_liftup.system());
-    let app_state = State::new(AppState::InGame);
-    world.insert_resource(app_state);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2687,36 +2699,37 @@ fn test_auto_liftup_stop_with_fall_block() {
 
 #[ignore = "how to change state?"]
 #[test]
-fn test_auto_liftup_gameover() {
+fn test_check_game_over() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(auto_liftup.system());
+    update_stage.add_system(check_game_over.system());
     let app_state = State::new(AppState::InGame);
     world.insert_resource(app_state);
-    let mut time = Time::default();
-    time.update();
-    world.insert_resource(time);
-    world
+    let count_timer = world
         .spawn()
-        .insert(CountTimer(Timer::from_seconds(0.0, false)));
+        .insert(CountTimer(Timer::from_seconds(0.0, false)))
+        .id();
 
     world
         .spawn()
-        .insert(Block)
         .insert_bundle(SpriteBundle {
             sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
-                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * 5.0 + 0.1, 0.0),
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * 5.1, 0.0),
                 ..Default::default()
             },
             ..Default::default()
         })
-        .insert(Fixed);
+        .insert(Block);
     assert_eq!(
         world.get_resource::<State<AppState>>().unwrap().current(),
         &AppState::InGame
     );
-    world.get_resource_mut::<Time>().unwrap().update();
+    world
+        .get_mut::<CountTimer>(count_timer)
+        .unwrap()
+        .0
+        .tick(Duration::from_secs_f32(1.0));
     update_stage.run(&mut world);
 
     assert_eq!(
