@@ -23,52 +23,35 @@ impl Plugin for IngamePlugin {
         app.add_plugin(bevy_easings::EasingsPlugin)
             .add_system_set(
                 SystemSet::on_enter(AppState::InGame)
-                    .with_system(setup_camera.system())
-                    .with_system(setup_board.system())
-                    .with_system(setup_board_bottom_cover.system())
-                    .with_system(setup_chaincounter.system()),
+                    .with_system(setup_camera)
+                    .with_system(setup_board)
+                    .with_system(setup_board_bottom_cover)
+                    .with_system(setup_chaincounter),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
                     .label("move_set")
                     .before("fall_set")
-                    .with_system(move_tag_block.system())
-                    .with_system(custom_ease_system::<Moving>.system())
-                    .with_system(move_block.system().label("move_block"))
-                    .with_system(moving_to_fixed.system().after("move_block")),
+                    .with_system(move_tag_block)
+                    .with_system(custom_ease_system::<Moving>)
+                    .with_system(move_block.label("move_block"))
+                    .with_system(moving_to_fixed.after("move_block")),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
                     .label("fall_set")
                     .after("move_set")
-                    .with_system(check_fall_block.system().label("check_fall"))
-                    .with_system(
-                        fall_upward
-                            .system()
-                            .label("fall_upward")
-                            .after("check_fall"),
-                    )
+                    .with_system(check_fall_block.label("check_fall"))
+                    .with_system(fall_upward.label("fall_upward").after("check_fall"))
                     .with_system(
                         floating_to_fall
-                            .system()
                             .label("floating_to_fall")
                             .after("fall_upward"),
                     )
-                    .with_system(
-                        fall_block
-                            .system()
-                            .label("fall_block")
-                            .after("floating_to_fall"),
-                    )
-                    .with_system(
-                        stop_fall_block
-                            .system()
-                            .label("stop_fall_block")
-                            .after("fall_block"),
-                    )
+                    .with_system(fall_block.label("fall_block").after("floating_to_fall"))
+                    .with_system(stop_fall_block.label("stop_fall_block").after("fall_block"))
                     .with_system(
                         fixedprepare_to_fixed
-                            .system()
                             .label("fixedprepare_to_fixed")
                             .after("stop_fall_block"),
                     ),
@@ -76,51 +59,37 @@ impl Plugin for IngamePlugin {
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
                     .label("spawning_set")
-                    .with_system(spawning_to_fixed.system())
-                    .with_system(bottom_down.system().label("bottom_down"))
-                    .with_system(generate_spawning_block.system().before("bottom_down")),
+                    .with_system(spawning_to_fixed)
+                    .with_system(bottom_down.label("bottom_down"))
+                    .with_system(generate_spawning_block.before("bottom_down")),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
                     .after("fall_set")
-                    .with_system(move_cursor.system())
-                    .with_system(match_block.system().label("match_block"))
+                    .with_system(move_cursor)
+                    .with_system(match_block.label("match_block"))
                     .with_system(
                         prepare_despawn_block
-                            .system()
                             .label("prepare_despawn_block")
                             .after("match_block"),
                     )
                     .with_system(
                         despawn_block
-                            .system()
                             .label("despawn_block")
                             .after("prepare_despawn_block"),
                     )
-                    .with_system(
-                        remove_chain
-                            .system()
-                            .label("remove_chain")
-                            .after("despawn_block"),
-                    )
+                    .with_system(remove_chain.label("remove_chain").after("despawn_block"))
                     .with_system(
                         reset_chain_counter
-                            .system()
                             .label("reset_chain_counter")
                             .after("despawn_block"),
                     )
                     .with_system(
                         check_game_over
-                            .system()
                             .label("check_game_over")
                             .after("reset_chain_counter"),
                     )
-                    .with_system(
-                        auto_liftup
-                            .system()
-                            .label("auto_liftup")
-                            .after("check_game_over"),
-                    ),
+                    .with_system(auto_liftup.label("auto_liftup").after("check_game_over")),
             );
     }
 }
@@ -973,7 +942,7 @@ fn generate_spawning_block(
 fn test_setup_board() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(setup_board.system());
+    update_stage.add_system(setup_board);
 
     world.insert_resource(BoardMaterials {
         board_material: Handle::<Image>::default(),
@@ -1005,7 +974,7 @@ fn test_setup_board() {
 fn test_left_move_cursor() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_cursor.system());
+    update_stage.add_system(move_cursor);
     world.spawn().insert(Board);
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
         sprite: Sprite {
@@ -1075,7 +1044,7 @@ fn test_left_move_cursor() {
 fn test_right_move_cursor() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_cursor.system());
+    update_stage.add_system(move_cursor);
     world.spawn().insert(Board);
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
         sprite: Sprite {
@@ -1145,7 +1114,7 @@ fn test_right_move_cursor() {
 fn test_down_move_cursor() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_cursor.system());
+    update_stage.add_system(move_cursor);
 
     world.spawn().insert(Board);
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
@@ -1204,7 +1173,7 @@ fn test_down_move_cursor() {
 fn test_up_move_cursor() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_cursor.system());
+    update_stage.add_system(move_cursor);
 
     world.spawn().insert(Board);
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
@@ -1264,7 +1233,7 @@ fn test_up_move_cursor() {
 fn test_move_tag_block_both_fix() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite {
@@ -1324,7 +1293,7 @@ fn test_move_tag_block_both_fix() {
 fn test_move_tag_block_left_one_fix() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite {
@@ -1371,7 +1340,7 @@ fn test_move_tag_block_left_one_fix() {
 fn test_move_tag_block_right_one_fix() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite {
@@ -1418,7 +1387,7 @@ fn test_move_tag_block_right_one_fix() {
 fn test_move_tag_block_there_is_collide() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite {
@@ -1477,7 +1446,7 @@ fn test_move_tag_block_there_is_collide() {
 fn test_move_tag_block_not_fixed_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite {
@@ -1537,7 +1506,7 @@ fn test_move_tag_block_not_fixed_block() {
 fn test_move_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_block.system());
+    update_stage.add_system(move_block);
 
     world
         .spawn()
@@ -1574,7 +1543,7 @@ fn test_move_block() {
 fn test_match_row_block_three_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..3 {
         world
@@ -1604,7 +1573,7 @@ fn test_match_row_block_three_matched() {
 fn test_match_row_block_four_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..4 {
         world
@@ -1634,7 +1603,7 @@ fn test_match_row_block_four_matched() {
 fn test_match_row_block_three_matched_only() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..5 {
         match i {
@@ -1690,7 +1659,7 @@ fn test_match_row_block_three_matched_only() {
 fn test_match_row_block_five_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..5 {
         world
@@ -1720,7 +1689,7 @@ fn test_match_row_block_five_matched() {
 fn test_match_row_block_six_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..6 {
         world
@@ -1750,7 +1719,7 @@ fn test_match_row_block_six_matched() {
 fn test_match_row_block_six_matched_two_colors() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..6 {
         if i < 3 {
@@ -1799,7 +1768,7 @@ fn test_match_row_block_six_matched_two_colors() {
 fn test_no_match_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     world
         .spawn()
@@ -1871,7 +1840,7 @@ fn test_no_match_block() {
 fn test_match_column_block_three_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..3 {
         world
@@ -1897,7 +1866,7 @@ fn test_match_column_block_three_matched() {
 fn test_match_row_and_column_block_five_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     // row
     for i in 0..3 {
@@ -1954,7 +1923,7 @@ fn test_match_row_and_column_block_five_matched() {
 fn test_prepare_despawn_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(prepare_despawn_block.system());
+    update_stage.add_system(prepare_despawn_block);
 
     world.spawn().insert(Block).insert(Matched);
     let chain_counter = world.spawn().insert(ChainCounter(1)).id();
@@ -1971,7 +1940,7 @@ fn test_prepare_despawn_block() {
 fn test_prepare_despawn_block_chain() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(prepare_despawn_block.system());
+    update_stage.add_system(prepare_despawn_block);
 
     world
         .spawn()
@@ -1992,7 +1961,7 @@ fn test_prepare_despawn_block_chain() {
 fn test_remove_chain() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(remove_chain.system());
+    update_stage.add_system(remove_chain);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2010,7 +1979,7 @@ fn test_remove_chain() {
 fn test_remove_chain_not_fixed() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(remove_chain.system());
+    update_stage.add_system(remove_chain);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2034,7 +2003,7 @@ fn test_remove_chain_not_fixed() {
 fn test_reset_chain_counter() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(reset_chain_counter.system());
+    update_stage.add_system(reset_chain_counter);
     let chain_counter = world.spawn().insert(ChainCounter(2)).id();
     update_stage.run(&mut world);
     assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 1);
@@ -2044,7 +2013,7 @@ fn test_reset_chain_counter() {
 fn test_reset_chain_counter_not_reset() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(reset_chain_counter.system());
+    update_stage.add_system(reset_chain_counter);
     let chain_counter = world.spawn().insert(ChainCounter(2)).id();
     world
         .spawn()
@@ -2058,7 +2027,7 @@ fn test_reset_chain_counter_not_reset() {
 fn test_despawn_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(despawn_block.system());
+    update_stage.add_system(despawn_block);
     let time = Time::default();
     world.insert_resource(time);
 
@@ -2083,7 +2052,7 @@ fn test_despawn_block() {
 fn test_despawn_block_add_chain() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(despawn_block.system());
+    update_stage.add_system(despawn_block);
     let time = Time::default();
     world.insert_resource(time);
 
@@ -2141,7 +2110,7 @@ fn test_despawn_block_add_chain() {
 fn test_check_fall_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
@@ -2165,7 +2134,7 @@ fn test_check_fall_block() {
 fn test_check_fall_block_there_isnot_between_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
@@ -2211,7 +2180,7 @@ fn test_check_fall_block_there_isnot_between_block() {
 fn test_check_fall_block_there_is_between_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
@@ -2266,7 +2235,7 @@ fn test_check_fall_block_there_is_between_block() {
 fn test_check_fall_block_there_is_start_block_move() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
@@ -2321,7 +2290,7 @@ fn test_check_fall_block_there_is_start_block_move() {
 fn test_check_fall_block_there_is_between_block_move() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
@@ -2376,7 +2345,7 @@ fn test_check_fall_block_there_is_between_block_move() {
 fn test_check_fall_block_bottom_block_not_fall() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
@@ -2397,7 +2366,7 @@ fn test_check_fall_block_bottom_block_not_fall() {
 fn test_fall_upward() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(fall_upward.system());
+    update_stage.add_system(fall_upward);
 
     world
         .spawn()
@@ -2430,7 +2399,7 @@ fn test_fall_upward() {
 fn test_fall_upward_divide() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(fall_upward.system());
+    update_stage.add_system(fall_upward);
 
     world
         .spawn()
@@ -2475,7 +2444,7 @@ fn test_fall_upward_divide() {
 fn test_floating_to_fall() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(floating_to_fall.system());
+    update_stage.add_system(floating_to_fall);
 
     let time = Time::default();
     world.insert_resource(time);
@@ -2492,7 +2461,7 @@ fn test_floating_to_fall() {
 fn test_stop_fall_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(stop_fall_block.system());
+    update_stage.add_system(stop_fall_block);
     world
         .spawn()
         .insert(Block)
@@ -2531,7 +2500,7 @@ fn test_stop_fall_block() {
 fn test_fixedprepare_to_fixed() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(fixedprepare_to_fixed.system());
+    update_stage.add_system(fixedprepare_to_fixed);
     world
         .spawn()
         .insert(Block)
@@ -2578,7 +2547,7 @@ fn test_fixedprepare_to_fixed() {
 fn test_auto_liftup() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(auto_liftup.system());
+    update_stage.add_system(auto_liftup);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2609,7 +2578,7 @@ fn test_auto_liftup() {
 fn test_auto_liftup_stop_with_timer() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(auto_liftup.system());
+    update_stage.add_system(auto_liftup);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2640,7 +2609,7 @@ fn test_auto_liftup_stop_with_timer() {
 fn test_auto_liftup_stop_with_fall_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(auto_liftup.system());
+    update_stage.add_system(auto_liftup);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2671,7 +2640,7 @@ fn test_auto_liftup_stop_with_fall_block() {
 fn test_check_game_over() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_game_over.system());
+    update_stage.add_system(check_game_over);
     let app_state = State::new(AppState::InGame);
     world.insert_resource(app_state);
     let count_timer = world
@@ -2710,7 +2679,7 @@ fn test_check_game_over() {
 fn test_spawning_to_fixed() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(spawning_to_fixed.system());
+    update_stage.add_system(spawning_to_fixed);
     world
         .spawn()
         .insert(Block)
@@ -2732,7 +2701,7 @@ fn test_spawning_to_fixed() {
 fn test_bottom_down() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(bottom_down.system());
+    update_stage.add_system(bottom_down);
     let bottom = world
         .spawn()
         .insert(Bottom)
@@ -2755,7 +2724,7 @@ fn test_bottom_down() {
 fn test_generate_spawning_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(generate_spawning_block.system());
+    update_stage.add_system(generate_spawning_block);
     world.insert_resource(BlockMaterials {
         red_material: Handle::<Image>::default(),
         green_material: Handle::<Image>::default(),

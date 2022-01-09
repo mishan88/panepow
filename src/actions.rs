@@ -10,9 +10,9 @@ impl Plugin for ActionPlugin {
             .init_resource::<LiftAction>()
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
-                    .with_system(set_movement_actions.system())
-                    .with_system(set_swap_action.system())
-                    .with_system(set_lift_action.system()),
+                    .with_system(set_movement_actions)
+                    .with_system(set_swap_action)
+                    .with_system(set_lift_action),
             );
     }
 }
@@ -248,7 +248,7 @@ impl GameControl {
 fn test_movement_actions() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(set_movement_actions.system());
+    update_stage.add_system(set_movement_actions);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -331,7 +331,7 @@ fn test_movement_actions() {
 fn test_swap_action() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(set_swap_action.system());
+    update_stage.add_system(set_swap_action);
 
     world.insert_resource(SwapAction::default());
     assert_eq!(world.get_resource::<SwapAction>().unwrap().0, false);
@@ -346,7 +346,7 @@ fn test_swap_action() {
 fn test_lift_action() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(set_lift_action.system());
+    update_stage.add_system(set_lift_action);
 
     let mut time = Time::default();
     time.update();
