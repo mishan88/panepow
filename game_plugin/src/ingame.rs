@@ -849,26 +849,24 @@ fn check_game_over(
 fn auto_liftup(
     time: Res<Time>,
     mut count_timer: Query<&mut CountTimer>,
-    mut query_set: QuerySet<(
-        Query<
-            Entity,
-            (
-                Without<Fixed>,
-                Without<Spawning>,
-                Without<Moving>,
-                Without<Move>,
-                With<Block>,
-            ),
-        >,
-        Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
-    )>,
+    block: Query<
+        Entity,
+        (
+            Without<Fixed>,
+            Without<Spawning>,
+            Without<Moving>,
+            Without<Move>,
+            With<Block>,
+        ),
+    >,
+    mut target: Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
 ) {
     if let Ok(mut count_timer) = count_timer.single_mut() {
         count_timer
             .0
             .tick(Duration::from_secs_f32(time.delta_seconds()));
-        if count_timer.0.finished() && query_set.q0().iter().next().is_none() {
-            for mut transform in query_set.q1_mut().iter_mut() {
+        if count_timer.0.finished() && block.iter().next().is_none() {
+            for mut transform in target.iter_mut() {
                 transform.translation.y += time.delta_seconds() * 10.0;
             }
         }
