@@ -9,7 +9,7 @@ use bevy_easings::*;
 use rand::prelude::*;
 
 use crate::{
-    actions::{MoveActions, SwapAction},
+    actions::{LiftAction, MoveActions, SwapAction},
     loading::{
         BlockMaterials, BoardBottomCoverMaterials, BoardMaterials, BottomMaterials, CursorMaterials,
     },
@@ -61,13 +61,18 @@ impl Plugin for IngamePlugin {
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
                     .label("spawning_set")
-                    .with_system(spawning_to_fixed)
-                    .with_system(bottom_down.label("bottom_down"))
-                    .with_system(generate_spawning_block.before("bottom_down")),
+                    .after("fall_set")
+                    .with_system(generate_spawning_block.label("generate_spawning_block"))
+                    .with_system(
+                        spawning_to_fixed
+                            .label("spawning_to_fixed")
+                            .after("generate_spawning_block"),
+                    )
+                    .with_system(bottom_down.label("bottom_down").after("spawning_to_fixed")),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
-                    .after("fall_set")
+                    .after("spawning_set")
                     .with_system(move_cursor)
                     .with_system(match_block.label("match_block"))
                     .with_system(
@@ -91,7 +96,12 @@ impl Plugin for IngamePlugin {
                             .label("check_game_over")
                             .after("reset_chain_counter"),
                     )
-                    .with_system(auto_liftup.label("auto_liftup").after("check_game_over")),
+                    .with_system(
+                        manual_liftup
+                            .label("manual_liftup")
+                            .after("check_game_over"),
+                    )
+                    .with_system(auto_liftup.label("auto_liftup").after("manual_liftup")),
             );
     }
 }
@@ -167,7 +177,10 @@ struct CountTimer(Timer);
 struct ChainCounter(u32);
 
 #[derive(Default)]
-struct GameSpeed(f32);
+struct GameSpeed {
+    current: f32,
+    origin: f32,
+}
 
 fn setup_camera(mut commands: Commands) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
@@ -357,7 +370,8 @@ fn setup_chaincounter(mut commands: Commands) {
 }
 
 fn setup_gamespeed(mut game_speed: ResMut<GameSpeed>) {
-    game_speed.0 = 10.0;
+    game_speed.current = 10.0;
+    game_speed.origin = 10.0;
 }
 
 fn move_cursor(actions: Res<MoveActions>, mut cursor: Query<&mut Transform, With<Cursor>>) {
@@ -864,8 +878,14 @@ fn auto_liftup(
         .tick(Duration::from_secs_f32(time.delta_seconds()));
     if count_timer.0.finished() && block.iter().next().is_none() {
         for mut transform in target.iter_mut() {
-            transform.translation.y += time.delta_seconds() * game_speed.0;
+            transform.translation.y += time.delta_seconds() * game_speed.current;
         }
+    }
+}
+
+fn manual_liftup(lift_action: Res<LiftAction>, mut game_speed: ResMut<GameSpeed>) {
+    if lift_action.lift {
+        game_speed.current = 100.0;
     }
 }
 
@@ -880,14 +900,16 @@ fn spawning_to_fixed(
     }
 }
 
-fn bottom_down(mut bottom: Query<&mut Transform, With<Bottom>>) {
+fn bottom_down(mut bottom: Query<&mut Transform, With<Bottom>>, mut game_speed: ResMut<GameSpeed>) {
     for mut transform in bottom.iter_mut() {
         if transform.translation.y >= BLOCK_SIZE * -6.0 {
             transform.translation.y = BLOCK_SIZE * -7.0;
+            game_speed.current = game_speed.origin;
         }
     }
 }
 
+// FIXME: spawning block with no gap.
 fn generate_spawning_block(
     mut commands: Commands,
     block_materials: Res<BlockMaterials>,
@@ -2560,7 +2582,10 @@ fn test_auto_liftup() {
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
-    world.insert_resource(GameSpeed(10.0));
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        ..Default::default()
+    });
     world
         .spawn()
         .insert(CountTimer(Timer::from_seconds(0.0, false)));
@@ -2592,7 +2617,10 @@ fn test_auto_liftup_stop_with_timer() {
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
-    world.insert_resource(GameSpeed(10.0));
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        ..Default::default()
+    });
     world
         .spawn()
         .insert(CountTimer(Timer::from_seconds(1.0, false)));
@@ -2624,7 +2652,10 @@ fn test_auto_liftup_stop_with_fall_block() {
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
-    world.insert_resource(GameSpeed(10.0));
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        ..Default::default()
+    });
     world
         .spawn()
         .insert(CountTimer(Timer::from_seconds(0.0, false)));
@@ -2645,6 +2676,24 @@ fn test_auto_liftup_stop_with_fall_block() {
     world.get_resource_mut::<Time>().unwrap().update();
     update_stage.run(&mut world);
     assert_eq!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
+}
+
+#[test]
+fn test_manual_liftup() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(manual_liftup);
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        origin: 10.0,
+    });
+    world.insert_resource(LiftAction {
+        lift: true,
+        ..Default::default()
+    });
+
+    update_stage.run(&mut world);
+    assert_eq!(world.get_resource::<GameSpeed>().unwrap().current, 100.0);
 }
 
 #[ignore = "how to change state?"]
@@ -2725,6 +2774,10 @@ fn test_bottom_down() {
             ..Default::default()
         })
         .id();
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        ..Default::default()
+    });
     update_stage.run(&mut world);
     assert_eq!(
         world.get::<Transform>(bottom).unwrap().translation.y,
