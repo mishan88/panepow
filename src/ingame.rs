@@ -352,22 +352,21 @@ fn setup_chaincounter(mut commands: Commands) {
 }
 
 fn move_cursor(actions: Res<MoveActions>, mut cursor: Query<&mut Transform, With<Cursor>>) {
-    if actions.cursor_movement.is_none() {
+    if let Some(cm) = actions.cursor_movement {
+        let mut transform = cursor.single_mut();
+        let movement = Vec3::new(cm.x * BLOCK_SIZE, cm.y * BLOCK_SIZE, 0.0);
+        if transform.translation.x + movement.x > -125.0
+            && transform.translation.x + movement.x < 125.0
+        {
+            transform.translation.x += movement.x;
+        }
+        if transform.translation.y + movement.y < 300.0
+            && transform.translation.y + movement.y > -300.0
+        {
+            transform.translation.y += movement.y;
+        }
+    } else {
         return;
-    }
-    let mut transform = cursor.single_mut();
-    let movement = Vec3::new(
-        actions.cursor_movement.unwrap().x * BLOCK_SIZE,
-        actions.cursor_movement.unwrap().y * BLOCK_SIZE,
-        0.0,
-    );
-    if transform.translation.x + movement.x > -125.0 && transform.translation.x + movement.x < 125.0
-    {
-        transform.translation.x += movement.x;
-    }
-    if transform.translation.y + movement.y < 300.0 && transform.translation.y + movement.y > -300.0
-    {
-        transform.translation.y += movement.y;
     }
 }
 
