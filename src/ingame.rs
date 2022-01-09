@@ -883,8 +883,14 @@ fn auto_liftup(
     }
 }
 
-fn manual_liftup(lift_action: Res<LiftAction>, mut game_speed: ResMut<GameSpeed>) {
+fn manual_liftup(
+    lift_action: Res<LiftAction>,
+    mut game_speed: ResMut<GameSpeed>,
+    mut count_timer: Query<&mut CountTimer>,
+) {
     if lift_action.lift {
+        let mut count_timer = count_timer.single_mut();
+        count_timer.0.set_duration(Duration::from_secs_f32(0.0));
         game_speed.current = 100.0;
     }
 }
@@ -2691,9 +2697,17 @@ fn test_manual_liftup() {
         lift: true,
         ..Default::default()
     });
+    let count_timer = world
+        .spawn()
+        .insert(CountTimer(Timer::from_seconds(1.0, false)))
+        .id();
 
     update_stage.run(&mut world);
     assert_eq!(world.get_resource::<GameSpeed>().unwrap().current, 100.0);
+    assert_eq!(
+        world.get::<CountTimer>(count_timer).unwrap().0.duration(),
+        Duration::from_secs_f32(0.0)
+    );
 }
 
 #[ignore = "how to change state?"]
