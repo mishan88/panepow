@@ -20,13 +20,15 @@ pub struct IngamePlugin;
 
 impl Plugin for IngamePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugin(bevy_easings::EasingsPlugin)
+        app.init_resource::<GameSpeed>()
+            .add_plugin(bevy_easings::EasingsPlugin)
             .add_system_set(
                 SystemSet::on_enter(AppState::InGame)
                     .with_system(setup_camera)
                     .with_system(setup_board)
                     .with_system(setup_board_bottom_cover)
-                    .with_system(setup_chaincounter),
+                    .with_system(setup_chaincounter)
+                    .with_system(setup_gamespeed),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
@@ -163,6 +165,9 @@ struct CountTimer(Timer);
 
 #[derive(Debug, Component)]
 struct ChainCounter(u32);
+
+#[derive(Default)]
+struct GameSpeed(f32);
 
 fn setup_camera(mut commands: Commands) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
@@ -349,6 +354,10 @@ fn setup_board_bottom_cover(
 
 fn setup_chaincounter(mut commands: Commands) {
     commands.spawn().insert(ChainCounter(1));
+}
+
+fn setup_gamespeed(mut game_speed: ResMut<GameSpeed>) {
+    game_speed.0 = 10.0;
 }
 
 fn move_cursor(actions: Res<MoveActions>, mut cursor: Query<&mut Transform, With<Cursor>>) {
@@ -835,6 +844,7 @@ fn check_game_over(
 
 fn auto_liftup(
     time: Res<Time>,
+    game_speed: Res<GameSpeed>,
     mut count_timer: Query<&mut CountTimer>,
     block: Query<
         Entity,
@@ -854,7 +864,7 @@ fn auto_liftup(
         .tick(Duration::from_secs_f32(time.delta_seconds()));
     if count_timer.0.finished() && block.iter().next().is_none() {
         for mut transform in target.iter_mut() {
-            transform.translation.y += time.delta_seconds() * 10.0;
+            transform.translation.y += time.delta_seconds() * game_speed.0;
         }
     }
 }
@@ -2550,6 +2560,7 @@ fn test_auto_liftup() {
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
+    world.insert_resource(GameSpeed(10.0));
     world
         .spawn()
         .insert(CountTimer(Timer::from_seconds(0.0, false)));
@@ -2581,6 +2592,7 @@ fn test_auto_liftup_stop_with_timer() {
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
+    world.insert_resource(GameSpeed(10.0));
     world
         .spawn()
         .insert(CountTimer(Timer::from_seconds(1.0, false)));
@@ -2612,6 +2624,7 @@ fn test_auto_liftup_stop_with_fall_block() {
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
+    world.insert_resource(GameSpeed(10.0));
     world
         .spawn()
         .insert(CountTimer(Timer::from_seconds(0.0, false)));
