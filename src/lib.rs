@@ -2,7 +2,6 @@ mod actions;
 mod ingame;
 mod loading;
 mod menu;
-use bevy::prelude::AppBuilder;
 use bevy::prelude::*;
 
 use crate::actions::ActionPlugin;
@@ -24,7 +23,7 @@ enum AppState {
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         app.add_state(AppState::Loading)
             .add_plugin(LoadingPlugin)
             .add_plugin(MenuPlugin)

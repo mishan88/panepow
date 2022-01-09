@@ -4,7 +4,7 @@ use std::time::Duration;
 pub struct ActionPlugin;
 
 impl Plugin for ActionPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         app.init_resource::<MoveActions>()
             .init_resource::<SwapAction>()
             .init_resource::<LiftAction>()
