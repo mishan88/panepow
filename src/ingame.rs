@@ -9,6 +9,7 @@ use bevy_easings::*;
 use rand::prelude::*;
 
 use crate::{
+    actions::{LiftAction, MoveActions, SwapAction},
     loading::{
         BlockMaterials, BoardBottomCoverMaterials, BoardMaterials, BottomMaterials, CursorMaterials,
     },
@@ -18,56 +19,41 @@ use crate::{
 pub struct IngamePlugin;
 
 impl Plugin for IngamePlugin {
-    fn build(&self, app: &mut AppBuilder) {
-        app.add_plugin(bevy_easings::EasingsPlugin)
+    fn build(&self, app: &mut App) {
+        app.init_resource::<GameSpeed>()
+            .add_plugin(bevy_easings::EasingsPlugin)
             .add_system_set(
                 SystemSet::on_enter(AppState::InGame)
-                    .with_system(setup_camera.system())
-                    .with_system(setup_board.system())
-                    .with_system(setup_board_bottom_cover.system())
-                    .with_system(setup_chaincounter.system()),
+                    .with_system(setup_camera)
+                    .with_system(setup_board)
+                    .with_system(setup_board_bottom_cover)
+                    .with_system(setup_chaincounter)
+                    .with_system(setup_gamespeed),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
                     .label("move_set")
                     .before("fall_set")
-                    .with_system(move_tag_block.system())
-                    .with_system(custom_ease_system::<Moving>.system())
-                    .with_system(move_block.system().label("move_block"))
-                    .with_system(moving_to_fixed.system().after("move_block")),
+                    .with_system(move_tag_block)
+                    .with_system(custom_ease_system::<Moving>)
+                    .with_system(move_block.label("move_block"))
+                    .with_system(moving_to_fixed.after("move_block")),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
                     .label("fall_set")
                     .after("move_set")
-                    .with_system(check_fall_block.system().label("check_fall"))
-                    .with_system(
-                        fall_upward
-                            .system()
-                            .label("fall_upward")
-                            .after("check_fall"),
-                    )
+                    .with_system(check_fall_block.label("check_fall"))
+                    .with_system(fall_upward.label("fall_upward").after("check_fall"))
                     .with_system(
                         floating_to_fall
-                            .system()
                             .label("floating_to_fall")
                             .after("fall_upward"),
                     )
-                    .with_system(
-                        fall_block
-                            .system()
-                            .label("fall_block")
-                            .after("floating_to_fall"),
-                    )
-                    .with_system(
-                        stop_fall_block
-                            .system()
-                            .label("stop_fall_block")
-                            .after("fall_block"),
-                    )
+                    .with_system(fall_block.label("fall_block").after("floating_to_fall"))
+                    .with_system(stop_fall_block.label("stop_fall_block").after("fall_block"))
                     .with_system(
                         fixedprepare_to_fixed
-                            .system()
                             .label("fixedprepare_to_fixed")
                             .after("stop_fall_block"),
                     ),
@@ -75,35 +61,47 @@ impl Plugin for IngamePlugin {
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
                     .label("spawning_set")
-                    .with_system(spawning_to_fixed.system())
-                    .with_system(bottom_down.system().label("bottom_down"))
-                    .with_system(generate_spawning_block.system().before("bottom_down")),
+                    .after("fall_set")
+                    .with_system(generate_spawning_block.label("generate_spawning_block"))
+                    .with_system(
+                        spawning_to_fixed
+                            .label("spawning_to_fixed")
+                            .after("generate_spawning_block"),
+                    )
+                    .with_system(bottom_down.label("bottom_down").after("spawning_to_fixed")),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
-                    .after("fall_set")
-                    .with_system(move_cursor.system())
-                    .with_system(match_block.system().label("match_block"))
+                    .after("spawning_set")
+                    .with_system(move_cursor)
+                    .with_system(match_block.label("match_block"))
                     .with_system(
                         prepare_despawn_block
-                            .system()
                             .label("prepare_despawn_block")
                             .after("match_block"),
                     )
                     .with_system(
                         despawn_block
-                            .system()
                             .label("despawn_block")
                             .after("prepare_despawn_block"),
                     )
+                    .with_system(remove_chain.label("remove_chain").after("despawn_block"))
                     .with_system(
-                        remove_chain
-                            .system()
-                            .label("remove_chain")
+                        reset_chain_counter
+                            .label("reset_chain_counter")
                             .after("despawn_block"),
                     )
-                    .with_system(reset_chain_counter.system().after("despawn_block"))
-                    .with_system(auto_liftup.system()),
+                    .with_system(
+                        check_game_over
+                            .label("check_game_over")
+                            .after("reset_chain_counter"),
+                    )
+                    .with_system(
+                        manual_liftup
+                            .label("manual_liftup")
+                            .after("check_game_over"),
+                    )
+                    .with_system(auto_liftup.label("auto_liftup").after("manual_liftup")),
             );
     }
 }
@@ -112,7 +110,7 @@ const BOARD_WIDTH: usize = 6;
 const BOARD_HEIGHT: usize = 13;
 const BLOCK_SIZE: f32 = 50.0;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Component)]
 enum BlockColor {
     Red,
     Green,
@@ -122,15 +120,16 @@ enum BlockColor {
     Indigo,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Component)]
 struct Block;
 
+#[derive(Debug, Component)]
 struct Spawning;
 
-#[derive(Debug)]
+#[derive(Debug, Component)]
 struct Move(f32);
 
-#[derive(Default, Debug)]
+#[derive(Debug, Component, Default)]
 struct Moving(f32);
 
 impl Lerp for Moving {
@@ -141,30 +140,47 @@ impl Lerp for Moving {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Component)]
 struct Fixed;
+#[derive(Debug, Component)]
 struct Matched;
+#[derive(Debug, Component)]
 struct FallPrepare;
+#[derive(Debug, Component)]
 struct Floating(Timer);
+#[derive(Debug, Component)]
 struct Fall;
+#[derive(Debug, Component)]
 struct FixedPrepare;
+#[derive(Debug, Component)]
 struct Despawining(Timer);
 
+#[derive(Debug, Component)]
 struct Chain(Timer);
 
+#[derive(Debug, Component)]
 struct Bottom;
 
-#[derive(Debug)]
+#[derive(Debug, Component)]
 struct Cursor;
 
-#[derive(Debug)]
+#[derive(Debug, Component)]
 struct Board;
 
+#[derive(Debug, Component)]
 struct BoardBottomCover;
 
+#[derive(Debug, Component)]
 struct CountTimer(Timer);
 
+#[derive(Debug, Component)]
 struct ChainCounter(u32);
+
+#[derive(Default)]
+struct GameSpeed {
+    current: f32,
+    origin: f32,
+}
 
 fn setup_camera(mut commands: Commands) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
@@ -182,14 +198,25 @@ fn setup_board(
         translation: Vec3::ZERO,
         ..Default::default()
     };
-    let board_sprite = Sprite::new(Vec2::new(
-        BOARD_WIDTH as f32 * BLOCK_SIZE,
-        BOARD_HEIGHT as f32 * BLOCK_SIZE,
-    ));
+    let board_sprite = Sprite {
+        custom_size: Some(Vec2::new(
+            BOARD_WIDTH as f32 * BLOCK_SIZE,
+            BOARD_HEIGHT as f32 * BLOCK_SIZE,
+        )),
+        ..Default::default()
+    };
+    let relative_x = board_transform.translation.x - board_sprite.custom_size.unwrap().x / 2.0
+        + BLOCK_SIZE / 2.0;
+    let relative_y = board_transform.translation.y - board_sprite.custom_size.unwrap().y / 2.0
+        + BLOCK_SIZE / 2.0;
+    let bottom_y = board_transform.translation.y
+        - board_sprite.custom_size.unwrap().y / 2.0
+        - BLOCK_SIZE / 2.0;
+
     let board_entity = commands
         .spawn_bundle(SpriteBundle {
-            material: board_materials.board_material.clone(),
-            sprite: board_sprite.clone(),
+            texture: board_materials.board_material.clone(),
+            sprite: board_sprite,
             transform: board_transform,
             ..Default::default()
         })
@@ -214,9 +241,8 @@ fn setup_board(
         // (BlockColor::Indigo, block_materials.indigo_material.clone()),
     ];
 
-    let relative_x = board_transform.translation.x - board_sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
-    let relative_y = board_transform.translation.y - board_sprite.size.y / 2.0 + BLOCK_SIZE / 2.0;
-    let bottom_y = board_transform.translation.y - board_sprite.size.y / 2.0 - BLOCK_SIZE / 2.0;
+    // TODO: board entity
+    block_colors.shuffle(&mut rng);
 
     if let Some(pattern) = patterns.iter().choose(&mut rng) {
         for (row_idx, row) in pattern.iter().rev().enumerate() {
@@ -226,8 +252,7 @@ fn setup_board(
                     Some(num) => {
                         let block = commands
                             .spawn_bundle(SpriteBundle {
-                                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                                material: block_colors[*num].1.clone(),
+                                texture: block_colors[*num].1.clone(),
                                 transform: Transform {
                                     translation: Vec3::new(
                                         relative_x + BLOCK_SIZE * column_idx as f32,
@@ -256,8 +281,7 @@ fn setup_board(
             let number = rng.gen_range(0..block_colors.len());
             let block = commands
                 .spawn_bundle(SpriteBundle {
-                    sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                    material: block_colors[number].1.clone(),
+                    texture: block_colors[number].1.clone(),
                     transform: Transform {
                         translation: Vec3::new(
                             relative_x + BLOCK_SIZE * column_idx as f32,
@@ -284,8 +308,11 @@ fn setup_board(
     }
     let bottom = commands
         .spawn_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE * BOARD_WIDTH as f32, BLOCK_SIZE)),
-            material: bottom_materials.bottom_material.clone(),
+            sprite: Sprite {
+                custom_size: Some(Vec2::new(BLOCK_SIZE * BOARD_WIDTH as f32, BLOCK_SIZE)),
+                ..Default::default()
+            },
+            texture: bottom_materials.bottom_material.clone(),
             transform: Transform {
                 translation: Vec3::new(0.0, bottom_y, 1.0),
                 ..Default::default()
@@ -297,8 +324,11 @@ fn setup_board(
     commands.entity(board_entity).push_children(&[bottom]);
     let cursor = commands
         .spawn_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
-            material: cursor_materials.cursor_material.clone(),
+            sprite: Sprite {
+                custom_size: Some(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+                ..Default::default()
+            },
+            texture: cursor_materials.cursor_material.clone(),
             transform: Transform {
                 translation: Vec3::new(0.0, 0.0, 1.0),
                 ..Default::default()
@@ -319,10 +349,13 @@ fn setup_board_bottom_cover(
 ) {
     commands
         .spawn_bundle(SpriteBundle {
-            material: board_bottom_cover_materials
+            texture: board_bottom_cover_materials
                 .board_bottom_cover_material
                 .clone(),
-            sprite: Sprite::new(Vec2::new(BOARD_WIDTH as f32 * BLOCK_SIZE, 2.0 * BLOCK_SIZE)),
+            sprite: Sprite {
+                custom_size: Some(Vec2::new(BOARD_WIDTH as f32 * BLOCK_SIZE, 2.0 * BLOCK_SIZE)),
+                ..Default::default()
+            },
             transform: Transform {
                 translation: Vec3::new(0.0, -375.0, 1.0),
                 ..Default::default()
@@ -336,110 +369,100 @@ fn setup_chaincounter(mut commands: Commands) {
     commands.spawn().insert(ChainCounter(1));
 }
 
-fn move_cursor(
-    keyboard_input: Res<Input<KeyCode>>,
-    mut cursor: Query<&mut Transform, With<Cursor>>,
-) {
-    if let Ok(mut transform) = cursor.single_mut() {
-        if keyboard_input.just_pressed(KeyCode::Left) && transform.translation.x > -75.0 {
-            transform.translation.x -= BLOCK_SIZE;
+fn setup_gamespeed(mut game_speed: ResMut<GameSpeed>) {
+    game_speed.current = 10.0;
+    game_speed.origin = 10.0;
+}
+
+fn move_cursor(actions: Res<MoveActions>, mut cursor: Query<&mut Transform, With<Cursor>>) {
+    if let Some(cm) = actions.cursor_movement {
+        let mut transform = cursor.single_mut();
+        let movement = Vec3::new(cm.x * BLOCK_SIZE, cm.y * BLOCK_SIZE, 0.0);
+        if transform.translation.x + movement.x > -125.0
+            && transform.translation.x + movement.x < 125.0
+        {
+            transform.translation.x += movement.x;
         }
-        if keyboard_input.just_pressed(KeyCode::Right) && transform.translation.x < 75.0 {
-            transform.translation.x += BLOCK_SIZE;
+        if transform.translation.y + movement.y < 300.0
+            && transform.translation.y + movement.y > -300.0
+        {
+            transform.translation.y += movement.y;
         }
-        if keyboard_input.just_pressed(KeyCode::Up) && transform.translation.y < 300.0 {
-            transform.translation.y += BLOCK_SIZE;
-        }
-        if keyboard_input.just_pressed(KeyCode::Down) && transform.translation.y > -300.0 {
-            transform.translation.y -= BLOCK_SIZE;
-        }
+    } else {
+        return;
     }
 }
 
-// TODO: if there is no fixed block -> check block and cancel tag.
 fn move_tag_block(
-    keyboard_input: Res<Input<KeyCode>>,
+    action: Res<SwapAction>,
     mut commands: Commands,
     cursor: Query<&Transform, With<Cursor>>,
     mut block: Query<(Entity, &Transform, Option<&Fixed>), With<Block>>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::Space) {
-        if let Ok(cursor_transform) = cursor.single() {
-            let x = cursor_transform.translation.x;
-            let left_x = x - BLOCK_SIZE / 2.0;
-            let right_x = x + BLOCK_SIZE / 2.0;
-            let mut right_block = (None, None);
-            let mut left_block = (None, None);
-            let mut left_collide = false;
-            let mut right_collide = false;
+    if action.0 {
+        let cursor_transform = cursor.single();
+        let x = cursor_transform.translation.x;
+        let left_x = x - BLOCK_SIZE / 2.0;
+        let right_x = x + BLOCK_SIZE / 2.0;
+        let mut right_block = (None, None);
+        let mut left_block = (None, None);
+        let mut left_collide = false;
+        let mut right_collide = false;
 
-            for (block_entity, block_transform, fixed) in block.iter_mut() {
-                if (block_transform.translation.y - cursor_transform.translation.y).abs()
-                    < BLOCK_SIZE / 2.0
-                {
-                    // left target
-                    if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
-                        left_block = (Some(block_entity), fixed);
-                    }
-                    // right target
-                    if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
-                        right_block = (Some(block_entity), fixed);
-                    }
+        for (block_entity, block_transform, fixed) in block.iter_mut() {
+            if (block_transform.translation.y - cursor_transform.translation.y).abs()
+                < BLOCK_SIZE / 2.0
+            {
+                // left target
+                if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
+                    left_block = (Some(block_entity), fixed);
                 }
-                // fall block collision
-                else if block_transform.translation.y - cursor_transform.translation.y
-                    < BLOCK_SIZE
-                    && block_transform.translation.y - cursor_transform.translation.y > 0.0
-                {
-                    // left collision exists
-                    if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
-                        left_collide = true;
-                    }
-                    // right collision exsists
-                    else if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
-                        right_collide = true;
-                    }
+                // right target
+                if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
+                    right_block = (Some(block_entity), fixed);
                 }
             }
-            match (right_block, right_collide, left_block, left_collide) {
-                // both exist and fixed -> remove fixed and insert move
-                ((Some(right_entity), Some(_)), _, (Some(left_entity), Some(_)), _) => {
-                    commands
-                        .entity(right_entity)
-                        .remove::<Fixed>()
-                        .insert(Move(left_x));
-                    commands
-                        .entity(left_entity)
-                        .remove::<Fixed>()
-                        .insert(Move(right_x));
+            // fall block collision
+            else if block_transform.translation.y - cursor_transform.translation.y < BLOCK_SIZE
+                && block_transform.translation.y - cursor_transform.translation.y > 0.0
+            {
+                // left collision exists
+                if (block_transform.translation.x - left_x).abs() < BLOCK_SIZE / 2.0 {
+                    left_collide = true;
                 }
-                // one exists and fixed && no collide -> remove fixed and insert move
-                ((Some(right_entity), Some(_)), _, (None, None), false) => {
-                    commands
-                        .entity(right_entity)
-                        .remove::<Fixed>()
-                        .insert(Move(left_x));
+                // right collision exsists
+                else if (block_transform.translation.x - right_x).abs() < BLOCK_SIZE / 2.0 {
+                    right_collide = true;
                 }
-                ((None, None), false, (Some(left_entity), Some(_)), _) => {
-                    commands
-                        .entity(left_entity)
-                        .remove::<Fixed>()
-                        .insert(Move(right_x));
-                }
-                // no fixed
-                _ => {}
             }
         }
-    }
-    if keyboard_input.just_pressed(KeyCode::A) {
-        println!("-------------------");
-        for (block_entity, transform, fixed) in block.iter() {
-            println!(
-                "{}: {}: {:?}",
-                block_entity.id(),
-                transform.translation,
-                fixed
-            );
+        match (right_block, right_collide, left_block, left_collide) {
+            // both exist and fixed -> remove fixed and insert move
+            ((Some(right_entity), Some(_)), _, (Some(left_entity), Some(_)), _) => {
+                commands
+                    .entity(right_entity)
+                    .remove::<Fixed>()
+                    .insert(Move(left_x));
+                commands
+                    .entity(left_entity)
+                    .remove::<Fixed>()
+                    .insert(Move(right_x));
+            }
+            // one exists and fixed && no collide -> remove fixed and insert move
+            ((Some(right_entity), Some(_)), _, (None, None), false) => {
+                commands
+                    .entity(right_entity)
+                    .remove::<Fixed>()
+                    .insert(Move(left_x));
+            }
+            ((None, None), false, (Some(left_entity), Some(_)), _) => {
+                commands
+                    .entity(left_entity)
+                    .remove::<Fixed>()
+                    .insert(Move(right_x));
+            }
+            // no fixed
+            _ => {}
         }
     }
 }
@@ -574,10 +597,8 @@ fn prepare_despawn_block(
         .iter()
         .any(|(_, chain)| chain.is_some())
     {
-        if let Ok(mut cc) = chain_counter.single_mut() {
-            cc.0 += 1;
-            // println!("{}", cc.0);
-        }
+        let mut cc = chain_counter.single_mut();
+        cc.0 += 1;
     }
 
     let combo = match_block.iter().count();
@@ -611,9 +632,8 @@ fn reset_chain_counter(
     mut chain_counter: Query<&mut ChainCounter>,
 ) {
     if chain_block.iter().next().is_none() {
-        if let Ok(mut cc) = chain_counter.single_mut() {
-            cc.0 = 1;
-        }
+        let mut cc = chain_counter.single_mut();
+        cc.0 = 1;
     }
 }
 
@@ -754,16 +774,16 @@ fn fall_block(time: Res<Time>, mut block: Query<&mut Transform, (With<Block>, Wi
 
 fn stop_fall_block(
     mut commands: Commands,
-    mut fall_block: Query<(Entity, &mut Transform, &Sprite), (With<Block>, With<Fall>)>,
-    other_block: Query<(&Transform, &Sprite), (With<Block>, Without<Fall>)>,
+    mut fall_block: Query<(Entity, &mut Transform), (With<Block>, With<Fall>)>,
+    other_block: Query<&Transform, (With<Block>, Without<Fall>)>,
 ) {
-    for (fall_block_entity, mut fall_block_transform, fall_block_sprite) in fall_block.iter_mut() {
-        for (other_block_transform, other_block_sprite) in other_block.iter() {
+    for (fall_block_entity, mut fall_block_transform) in fall_block.iter_mut() {
+        for other_block_transform in other_block.iter() {
             if let Some(Collision::Top) = collide(
                 fall_block_transform.translation,
-                fall_block_sprite.size,
+                Vec2::new(BLOCK_SIZE, BLOCK_SIZE),
                 other_block_transform.translation,
-                other_block_sprite.size,
+                Vec2::new(BLOCK_SIZE, BLOCK_SIZE),
             ) {
                 commands
                     .entity(fall_block_entity)
@@ -820,47 +840,58 @@ fn fixedprepare_to_fixed(
     }
 }
 
+fn check_game_over(
+    mut state: ResMut<State<AppState>>,
+    count_timer: Query<&CountTimer>,
+    block: Query<&Transform, With<Block>>,
+) {
+    let count_timer = count_timer.single();
+    let max_height_block = block
+        .iter()
+        .max_by(|a_tr, b_tr| a_tr.translation.y.partial_cmp(&b_tr.translation.y).unwrap());
+    if let Some(max_tr) = max_height_block {
+        if count_timer.0.finished() && max_tr.translation.y > BLOCK_SIZE * 5.0 {
+            state.set(AppState::GameOver).unwrap();
+        }
+    }
+}
+
 fn auto_liftup(
     time: Res<Time>,
-    mut state: ResMut<State<AppState>>,
+    game_speed: Res<GameSpeed>,
     mut count_timer: Query<&mut CountTimer>,
-    mut query_set: QuerySet<(
-        Query<
-            Entity,
-            (
-                Without<Fixed>,
-                Without<Spawning>,
-                Without<Moving>,
-                Without<Move>,
-                With<Block>,
-            ),
-        >,
-        Query<&Transform, (With<Fixed>, With<Block>)>,
-        Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
-    )>,
+    block: Query<
+        Entity,
+        (
+            Without<Fixed>,
+            Without<Spawning>,
+            Without<Moving>,
+            Without<Move>,
+            With<Block>,
+        ),
+    >,
+    mut target: Query<&mut Transform, Or<(With<Cursor>, With<Block>, With<Bottom>)>>,
 ) {
-    if let Ok(mut count_timer) = count_timer.single_mut() {
-        count_timer
-            .0
-            .tick(Duration::from_secs_f32(time.delta_seconds()));
-        let max_bl = query_set
-            .q1()
-            .iter()
-            .max_by(|a_tr, b_tr| a_tr.translation.y.partial_cmp(&b_tr.translation.y).unwrap());
-        if let Some(max_tr) = max_bl {
-            if count_timer.0.finished() {
-                // lift up
-                if max_tr.translation.y > BLOCK_SIZE * 5.0 {
-                    state.set(AppState::GameOver).unwrap();
-                }
-                if max_tr.translation.y < BLOCK_SIZE * 5.0 && query_set.q0().iter().next().is_none()
-                {
-                    for mut transform in query_set.q2_mut().iter_mut() {
-                        transform.translation.y += time.delta_seconds() * 10.0;
-                    }
-                }
-            }
+    let mut count_timer = count_timer.single_mut();
+    count_timer
+        .0
+        .tick(Duration::from_secs_f32(time.delta_seconds()));
+    if count_timer.0.finished() && block.iter().next().is_none() {
+        for mut transform in target.iter_mut() {
+            transform.translation.y += time.delta_seconds() * game_speed.current;
         }
+    }
+}
+
+fn manual_liftup(
+    lift_action: Res<LiftAction>,
+    mut game_speed: ResMut<GameSpeed>,
+    mut count_timer: Query<&mut CountTimer>,
+) {
+    if lift_action.lift {
+        let mut count_timer = count_timer.single_mut();
+        count_timer.0.set_duration(Duration::from_secs_f32(0.0));
+        game_speed.current = 100.0;
     }
 }
 
@@ -875,27 +906,36 @@ fn spawning_to_fixed(
     }
 }
 
-fn bottom_down(mut bottom: Query<&mut Transform, With<Bottom>>) {
+fn bottom_down(
+    mut bottom: Query<&mut Transform, With<Bottom>>,
+    mut game_speed: ResMut<GameSpeed>,
+    time: Res<Time>,
+) {
     for mut transform in bottom.iter_mut() {
         if transform.translation.y >= BLOCK_SIZE * -6.0 {
-            transform.translation.y = BLOCK_SIZE * -7.0;
+            transform.translation.y = BLOCK_SIZE * -7.0 + time.delta_seconds() * game_speed.current;
+            game_speed.current = game_speed.origin;
         }
     }
 }
 
 fn generate_spawning_block(
     mut commands: Commands,
+    game_speed: Res<GameSpeed>,
+    time: Res<Time>,
     block_materials: Res<BlockMaterials>,
     board: Query<(Entity, &Transform, &Sprite), With<Board>>,
-    bottom: Query<&Transform, With<Bottom>>,
+    spawning_block: Query<&Transform, (With<Block>, With<Spawning>)>,
 ) {
-    for (board_entity, board_transform, sprite) in board.iter() {
-        for transform in bottom.iter() {
-            if transform.translation.y >= BLOCK_SIZE * -6.0 {
-                let relative_x =
-                    board_transform.translation.x - sprite.size.x / 2.0 + BLOCK_SIZE / 2.0;
-                let bottom_y =
-                    board_transform.translation.y - sprite.size.y / 2.0 - BLOCK_SIZE / 2.0;
+    for (board_entity, board_transform, board_sprite) in board.iter() {
+        if spawning_block.iter().count() == 6 {
+            if let Some(bottom_y) = spawning_block
+                .iter()
+                .min_by(|tr_a, tr_b| tr_a.translation.y.partial_cmp(&tr_b.translation.y).unwrap())
+            {
+                let relative_x = board_transform.translation.x
+                    - board_sprite.custom_size.unwrap().x / 2.0
+                    + BLOCK_SIZE / 2.0;
                 let mut rng = rand::thread_rng();
                 let mut block_colors = vec![
                     (BlockColor::Red, block_materials.red_material.clone()),
@@ -911,12 +951,12 @@ fn generate_spawning_block(
                     let number = rng.gen_range(0..block_colors.len());
                     let block = commands
                         .spawn_bundle(SpriteBundle {
-                            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
-                            material: block_colors[number].1.clone(),
+                            texture: block_colors[number].1.clone(),
                             transform: Transform {
                                 translation: Vec3::new(
                                     relative_x + BLOCK_SIZE * column_idx as f32,
-                                    bottom_y - BLOCK_SIZE as f32,
+                                    bottom_y.translation.y - BLOCK_SIZE
+                                        + time.delta_seconds() * game_speed.current,
                                     0.0,
                                 ),
                                 ..Default::default()
@@ -945,24 +985,24 @@ fn generate_spawning_block(
 fn test_setup_board() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(setup_board.system());
+    update_stage.add_system(setup_board);
 
     world.insert_resource(BoardMaterials {
-        board_material: Handle::<ColorMaterial>::default(),
+        board_material: Handle::<Image>::default(),
     });
     world.insert_resource(BlockMaterials {
-        red_material: Handle::<ColorMaterial>::default(),
-        green_material: Handle::<ColorMaterial>::default(),
-        blue_material: Handle::<ColorMaterial>::default(),
-        yellow_material: Handle::<ColorMaterial>::default(),
-        purple_material: Handle::<ColorMaterial>::default(),
-        indigo_material: Handle::<ColorMaterial>::default(),
+        red_material: Handle::<Image>::default(),
+        green_material: Handle::<Image>::default(),
+        blue_material: Handle::<Image>::default(),
+        yellow_material: Handle::<Image>::default(),
+        purple_material: Handle::<Image>::default(),
+        indigo_material: Handle::<Image>::default(),
     });
     world.insert_resource(BottomMaterials {
-        bottom_material: Handle::<ColorMaterial>::default(),
+        bottom_material: Handle::<Image>::default(),
     });
     world.insert_resource(CursorMaterials {
-        cursor_material: Handle::<ColorMaterial>::default(),
+        cursor_material: Handle::<Image>::default(),
     });
 
     update_stage.run(&mut world);
@@ -977,16 +1017,20 @@ fn test_setup_board() {
 fn test_left_move_cursor() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_cursor.system());
+    update_stage.add_system(move_cursor);
     world.spawn().insert(Board);
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+            ..Default::default()
+        },
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
         },
         ..Default::default()
     });
+    world.insert_resource(MoveActions::default());
 
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
     assert_eq!(
@@ -999,12 +1043,11 @@ fn test_left_move_cursor() {
             .translation,
         Vec3::ZERO
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Left);
-    world.insert_resource(input);
-
+    world
+        .get_resource_mut::<MoveActions>()
+        .unwrap()
+        .cursor_movement = Some(Vec2::new(-1.0, 0.0));
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1015,11 +1058,7 @@ fn test_left_move_cursor() {
             .translation,
         Vec3::new(-1.0 * BLOCK_SIZE, 0.0, 0.0)
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Left);
-    world.insert_resource(input);
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1031,11 +1070,7 @@ fn test_left_move_cursor() {
         Vec3::new(-2.0 * BLOCK_SIZE, 0.0, 0.0)
     );
     // can't move left more
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Left);
-    world.insert_resource(input);
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1052,16 +1087,20 @@ fn test_left_move_cursor() {
 fn test_right_move_cursor() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_cursor.system());
+    update_stage.add_system(move_cursor);
     world.spawn().insert(Board);
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
+            ..Default::default()
+        },
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
         },
         ..Default::default()
     });
+    world.insert_resource(MoveActions::default());
 
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
     assert_eq!(
@@ -1074,10 +1113,10 @@ fn test_right_move_cursor() {
             .translation,
         Vec3::ZERO
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Right);
-    world.insert_resource(input);
-
+    world
+        .get_resource_mut::<MoveActions>()
+        .unwrap()
+        .cursor_movement = Some(Vec2::new(1.0, 0.0));
     update_stage.run(&mut world);
     assert_eq!(
         world
@@ -1089,10 +1128,6 @@ fn test_right_move_cursor() {
             .translation,
         Vec3::new(BLOCK_SIZE, 0.0, 0.0)
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Right);
-    world.insert_resource(input);
-
     update_stage.run(&mut world);
     assert_eq!(
         world
@@ -1105,10 +1140,6 @@ fn test_right_move_cursor() {
         Vec3::new(2.0 * BLOCK_SIZE, 0.0, 0.0)
     );
     // can't move right more
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Right);
-    world.insert_resource(input);
-
     update_stage.run(&mut world);
     assert_eq!(
         world
@@ -1126,17 +1157,17 @@ fn test_right_move_cursor() {
 fn test_down_move_cursor() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_cursor.system());
+    update_stage.add_system(move_cursor);
 
     world.spawn().insert(Board);
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
         },
         ..Default::default()
     });
+    world.insert_resource(MoveActions::default());
 
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
     assert_eq!(
@@ -1149,12 +1180,12 @@ fn test_down_move_cursor() {
             .translation,
         Vec3::ZERO
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Down);
-    world.insert_resource(input);
+    world
+        .get_resource_mut::<MoveActions>()
+        .unwrap()
+        .cursor_movement = Some(Vec2::new(0.0, -1.0));
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1167,9 +1198,6 @@ fn test_down_move_cursor() {
     );
 
     for _ in 0..7 {
-        let mut input = Input::<KeyCode>::default();
-        input.press(KeyCode::Down);
-        world.insert_resource(input);
         update_stage.run(&mut world);
     }
     assert_eq!(
@@ -1180,7 +1208,7 @@ fn test_down_move_cursor() {
             .unwrap()
             .1
             .translation,
-        Vec3::new(0.0, -6.0 * BLOCK_SIZE, 0.0)
+        Vec3::new(0.0, -5.0 * BLOCK_SIZE, 0.0)
     );
 }
 
@@ -1188,17 +1216,17 @@ fn test_down_move_cursor() {
 fn test_up_move_cursor() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_cursor.system());
+    update_stage.add_system(move_cursor);
 
     world.spawn().insert(Board);
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
         },
         ..Default::default()
     });
+    world.insert_resource(MoveActions::default());
 
     assert_eq!(world.query::<&Cursor>().iter(&world).len(), 1);
     assert_eq!(
@@ -1211,9 +1239,10 @@ fn test_up_move_cursor() {
             .translation,
         Vec3::ZERO
     );
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Up);
-    world.insert_resource(input);
+    world
+        .get_resource_mut::<MoveActions>()
+        .unwrap()
+        .cursor_movement = Some(Vec2::new(0.0, 1.0));
 
     update_stage.run(&mut world);
     assert_eq!(
@@ -1228,13 +1257,9 @@ fn test_up_move_cursor() {
     );
 
     for _ in 0..7 {
-        let mut input = Input::<KeyCode>::default();
-        input.press(KeyCode::Up);
-        world.insert_resource(input);
         update_stage.run(&mut world);
     }
 
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(
         world
             .query::<(&Cursor, &Transform)>()
@@ -1243,7 +1268,7 @@ fn test_up_move_cursor() {
             .unwrap()
             .1
             .translation,
-        Vec3::new(0.0, 6.0 * BLOCK_SIZE, 0.0)
+        Vec3::new(0.0, 5.0 * BLOCK_SIZE, 0.0)
     );
 }
 
@@ -1251,13 +1276,16 @@ fn test_up_move_cursor() {
 fn test_move_tag_block_both_fix() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(
-            BOARD_WIDTH as f32 * BLOCK_SIZE,
-            BOARD_HEIGHT as f32 * BLOCK_SIZE,
-        )),
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(
+                BOARD_WIDTH as f32 * BLOCK_SIZE,
+                BOARD_HEIGHT as f32 * BLOCK_SIZE,
+            )),
+            ..Default::default()
+        },
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1265,7 +1293,6 @@ fn test_move_tag_block_both_fix() {
         ..Default::default()
     });
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1276,7 +1303,6 @@ fn test_move_tag_block_both_fix() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -1289,7 +1315,6 @@ fn test_move_tag_block_both_fix() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -1299,14 +1324,10 @@ fn test_move_tag_block_both_fix() {
         .insert(BlockColor::Blue)
         .insert(Fixed);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
-
+    world.insert_resource(SwapAction(true));
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 2);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 0);
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 2);
 }
@@ -1315,13 +1336,16 @@ fn test_move_tag_block_both_fix() {
 fn test_move_tag_block_left_one_fix() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(
-            BOARD_WIDTH as f32 * BLOCK_SIZE,
-            BOARD_HEIGHT as f32 * BLOCK_SIZE,
-        )),
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(
+                BOARD_WIDTH as f32 * BLOCK_SIZE,
+                BOARD_HEIGHT as f32 * BLOCK_SIZE,
+            )),
+            ..Default::default()
+        },
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1329,7 +1353,6 @@ fn test_move_tag_block_left_one_fix() {
         ..Default::default()
     });
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1340,7 +1363,6 @@ fn test_move_tag_block_left_one_fix() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -1350,14 +1372,10 @@ fn test_move_tag_block_left_one_fix() {
         .insert(BlockColor::Red)
         .insert(Fixed);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
-
+    world.insert_resource(SwapAction(true));
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 1);
 }
 
@@ -1365,13 +1383,16 @@ fn test_move_tag_block_left_one_fix() {
 fn test_move_tag_block_right_one_fix() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(
-            BOARD_WIDTH as f32 * BLOCK_SIZE,
-            BOARD_HEIGHT as f32 * BLOCK_SIZE,
-        )),
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(
+                BOARD_WIDTH as f32 * BLOCK_SIZE,
+                BOARD_HEIGHT as f32 * BLOCK_SIZE,
+            )),
+            ..Default::default()
+        },
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1379,7 +1400,6 @@ fn test_move_tag_block_right_one_fix() {
         ..Default::default()
     });
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1390,7 +1410,6 @@ fn test_move_tag_block_right_one_fix() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -1400,14 +1419,10 @@ fn test_move_tag_block_right_one_fix() {
         .insert(BlockColor::Red)
         .insert(Fixed);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
-
+    world.insert_resource(SwapAction(true));
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 1);
 }
 
@@ -1415,13 +1430,16 @@ fn test_move_tag_block_right_one_fix() {
 fn test_move_tag_block_there_is_collide() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(
-            BOARD_WIDTH as f32 * BLOCK_SIZE,
-            BOARD_HEIGHT as f32 * BLOCK_SIZE,
-        )),
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(
+                BOARD_WIDTH as f32 * BLOCK_SIZE,
+                BOARD_HEIGHT as f32 * BLOCK_SIZE,
+            )),
+            ..Default::default()
+        },
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1429,7 +1447,6 @@ fn test_move_tag_block_there_is_collide() {
         ..Default::default()
     });
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1440,7 +1457,6 @@ fn test_move_tag_block_there_is_collide() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 1.0, 0.0),
                 ..Default::default()
@@ -1452,7 +1468,6 @@ fn test_move_tag_block_there_is_collide() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -1462,14 +1477,11 @@ fn test_move_tag_block_there_is_collide() {
         .insert(BlockColor::Red)
         .insert(Fixed);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
+    world.insert_resource(SwapAction(true));
 
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 0);
 }
 
@@ -1477,13 +1489,16 @@ fn test_move_tag_block_there_is_collide() {
 fn test_move_tag_block_not_fixed_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_tag_block.system());
+    update_stage.add_system(move_tag_block);
 
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(
-            BOARD_WIDTH as f32 * BLOCK_SIZE,
-            BOARD_HEIGHT as f32 * BLOCK_SIZE,
-        )),
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(
+                BOARD_WIDTH as f32 * BLOCK_SIZE,
+                BOARD_HEIGHT as f32 * BLOCK_SIZE,
+            )),
+            ..Default::default()
+        },
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1491,7 +1506,6 @@ fn test_move_tag_block_not_fixed_block() {
         ..Default::default()
     });
     world.spawn().insert(Cursor).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 2.0, BLOCK_SIZE)),
         transform: Transform {
             translation: Vec3::ZERO,
             ..Default::default()
@@ -1502,7 +1516,6 @@ fn test_move_tag_block_not_fixed_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -1515,7 +1528,6 @@ fn test_move_tag_block_not_fixed_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -1524,14 +1536,11 @@ fn test_move_tag_block_not_fixed_block() {
         })
         .insert(BlockColor::Blue);
 
-    let mut input = Input::<KeyCode>::default();
-    input.press(KeyCode::Space);
-    world.insert_resource(input);
+    world.insert_resource(SwapAction(true));
 
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
 
     update_stage.run(&mut world);
-    world.get_resource_mut::<Input<KeyCode>>().unwrap();
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
     assert_eq!(world.query::<(&Block, &Move)>().iter(&world).len(), 0);
 }
@@ -1540,13 +1549,12 @@ fn test_move_tag_block_not_fixed_block() {
 fn test_move_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(move_block.system());
+    update_stage.add_system(move_block);
 
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -1559,7 +1567,6 @@ fn test_move_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(-1.0 * BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -1579,14 +1586,13 @@ fn test_move_block() {
 fn test_match_row_block_three_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..3 {
         world
             .spawn()
             .insert(Block)
             .insert_bundle(SpriteBundle {
-                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 transform: Transform {
                     translation: Vec3::new(
                         BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
@@ -1610,14 +1616,13 @@ fn test_match_row_block_three_matched() {
 fn test_match_row_block_four_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..4 {
         world
             .spawn()
             .insert(Block)
             .insert_bundle(SpriteBundle {
-                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 transform: Transform {
                     translation: Vec3::new(
                         BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
@@ -1641,7 +1646,7 @@ fn test_match_row_block_four_matched() {
 fn test_match_row_block_three_matched_only() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..5 {
         match i {
@@ -1650,7 +1655,6 @@ fn test_match_row_block_three_matched_only() {
                     .spawn()
                     .insert(Block)
                     .insert_bundle(SpriteBundle {
-                        sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                         transform: Transform {
                             translation: Vec3::new(
                                 BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
@@ -1669,7 +1673,6 @@ fn test_match_row_block_three_matched_only() {
                     .spawn()
                     .insert(Block)
                     .insert_bundle(SpriteBundle {
-                        sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                         transform: Transform {
                             translation: Vec3::new(
                                 BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
@@ -1699,14 +1702,13 @@ fn test_match_row_block_three_matched_only() {
 fn test_match_row_block_five_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..5 {
         world
             .spawn()
             .insert(Block)
             .insert_bundle(SpriteBundle {
-                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 transform: Transform {
                     translation: Vec3::new(
                         BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
@@ -1730,14 +1732,13 @@ fn test_match_row_block_five_matched() {
 fn test_match_row_block_six_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..6 {
         world
             .spawn()
             .insert(Block)
             .insert_bundle(SpriteBundle {
-                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 transform: Transform {
                     translation: Vec3::new(
                         BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
@@ -1761,7 +1762,7 @@ fn test_match_row_block_six_matched() {
 fn test_match_row_block_six_matched_two_colors() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..6 {
         if i < 3 {
@@ -1769,7 +1770,6 @@ fn test_match_row_block_six_matched_two_colors() {
                 .spawn()
                 .insert(Block)
                 .insert_bundle(SpriteBundle {
-                    sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                     transform: Transform {
                         translation: Vec3::new(
                             BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
@@ -1787,7 +1787,6 @@ fn test_match_row_block_six_matched_two_colors() {
                 .spawn()
                 .insert(Block)
                 .insert_bundle(SpriteBundle {
-                    sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                     transform: Transform {
                         translation: Vec3::new(
                             BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
@@ -1812,12 +1811,11 @@ fn test_match_row_block_six_matched_two_colors() {
 fn test_no_match_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     world
         .spawn()
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE * 2.0, -300.0, 0.0),
                 ..Default::default()
@@ -1830,7 +1828,6 @@ fn test_no_match_block() {
     world
         .spawn()
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE, -300.0, 0.0),
                 ..Default::default()
@@ -1843,7 +1840,6 @@ fn test_no_match_block() {
     world
         .spawn()
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, -300.0, 0.0),
                 ..Default::default()
@@ -1856,7 +1852,6 @@ fn test_no_match_block() {
     world
         .spawn()
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE * 2.0, -300.0, 0.0),
                 ..Default::default()
@@ -1869,7 +1864,6 @@ fn test_no_match_block() {
     world
         .spawn()
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE - 300.0, 0.0),
                 ..Default::default()
@@ -1889,14 +1883,13 @@ fn test_no_match_block() {
 fn test_match_column_block_three_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     for i in 0..3 {
         world
             .spawn()
             .insert(Block)
             .insert_bundle(SpriteBundle {
-                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 transform: Transform {
                     translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0 - BLOCK_SIZE * i as f32, 0.0),
                     ..Default::default()
@@ -1916,7 +1909,7 @@ fn test_match_column_block_three_matched() {
 fn test_match_row_and_column_block_five_matched() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(match_block.system());
+    update_stage.add_system(match_block);
 
     // row
     for i in 0..3 {
@@ -1924,7 +1917,6 @@ fn test_match_row_and_column_block_five_matched() {
             .spawn()
             .insert(Block)
             .insert_bundle(SpriteBundle {
-                sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
                 transform: Transform {
                     translation: Vec3::new(
                         BLOCK_SIZE / 2.0 + BLOCK_SIZE * (i - 3) as f32,
@@ -1943,7 +1935,6 @@ fn test_match_row_and_column_block_five_matched() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE * 2.0, BLOCK_SIZE, 0.0),
                 ..Default::default()
@@ -1957,7 +1948,6 @@ fn test_match_row_and_column_block_five_matched() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE * 2.0, -1.0 * BLOCK_SIZE, 0.0),
                 ..Default::default()
@@ -1976,7 +1966,7 @@ fn test_match_row_and_column_block_five_matched() {
 fn test_prepare_despawn_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(prepare_despawn_block.system());
+    update_stage.add_system(prepare_despawn_block);
 
     world.spawn().insert(Block).insert(Matched);
     let chain_counter = world.spawn().insert(ChainCounter(1)).id();
@@ -1993,7 +1983,7 @@ fn test_prepare_despawn_block() {
 fn test_prepare_despawn_block_chain() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(prepare_despawn_block.system());
+    update_stage.add_system(prepare_despawn_block);
 
     world
         .spawn()
@@ -2014,7 +2004,7 @@ fn test_prepare_despawn_block_chain() {
 fn test_remove_chain() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(remove_chain.system());
+    update_stage.add_system(remove_chain);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2032,7 +2022,7 @@ fn test_remove_chain() {
 fn test_remove_chain_not_fixed() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(remove_chain.system());
+    update_stage.add_system(remove_chain);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
@@ -2044,7 +2034,7 @@ fn test_remove_chain_not_fixed() {
     world
         .spawn()
         .insert(Block)
-        .insert(Despawining)
+        .insert(Despawining(Timer::from_seconds(1.0, false)))
         .insert(Chain(Timer::from_seconds(0.0, false)));
 
     assert_eq!(world.query::<(&Block, &Chain)>().iter(&world).len(), 2);
@@ -2056,7 +2046,7 @@ fn test_remove_chain_not_fixed() {
 fn test_reset_chain_counter() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(reset_chain_counter.system());
+    update_stage.add_system(reset_chain_counter);
     let chain_counter = world.spawn().insert(ChainCounter(2)).id();
     update_stage.run(&mut world);
     assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 1);
@@ -2066,7 +2056,7 @@ fn test_reset_chain_counter() {
 fn test_reset_chain_counter_not_reset() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(reset_chain_counter.system());
+    update_stage.add_system(reset_chain_counter);
     let chain_counter = world.spawn().insert(ChainCounter(2)).id();
     world
         .spawn()
@@ -2080,7 +2070,7 @@ fn test_reset_chain_counter_not_reset() {
 fn test_despawn_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(despawn_block.system());
+    update_stage.add_system(despawn_block);
     let time = Time::default();
     world.insert_resource(time);
 
@@ -2088,7 +2078,6 @@ fn test_despawn_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::ZERO,
                 ..Default::default()
@@ -2106,7 +2095,7 @@ fn test_despawn_block() {
 fn test_despawn_block_add_chain() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(despawn_block.system());
+    update_stage.add_system(despawn_block);
     let time = Time::default();
     world.insert_resource(time);
 
@@ -2114,7 +2103,6 @@ fn test_despawn_block_add_chain() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::ZERO,
                 ..Default::default()
@@ -2126,7 +2114,6 @@ fn test_despawn_block_add_chain() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(0.0, BLOCK_SIZE, 0.0),
                 ..Default::default()
@@ -2138,7 +2125,6 @@ fn test_despawn_block_add_chain() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(0.0, BLOCK_SIZE * 3.0, 0.0),
                 ..Default::default()
@@ -2151,7 +2137,6 @@ fn test_despawn_block_add_chain() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(0.0, BLOCK_SIZE * -1.0, 0.0),
                 ..Default::default()
@@ -2168,12 +2153,11 @@ fn test_despawn_block_add_chain() {
 fn test_check_fall_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -2193,12 +2177,11 @@ fn test_check_fall_block() {
 fn test_check_fall_block_there_isnot_between_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -5.0, 0.0),
                 ..Default::default()
@@ -2210,7 +2193,6 @@ fn test_check_fall_block_there_isnot_between_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2222,7 +2204,6 @@ fn test_check_fall_block_there_isnot_between_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2242,12 +2223,11 @@ fn test_check_fall_block_there_isnot_between_block() {
 fn test_check_fall_block_there_is_between_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -5.0, 0.0),
                 ..Default::default()
@@ -2259,7 +2239,6 @@ fn test_check_fall_block_there_is_between_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2271,7 +2250,6 @@ fn test_check_fall_block_there_is_between_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2284,7 +2262,6 @@ fn test_check_fall_block_there_is_between_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2301,12 +2278,11 @@ fn test_check_fall_block_there_is_between_block() {
 fn test_check_fall_block_there_is_start_block_move() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -5.0, 0.0),
                 ..Default::default()
@@ -2318,7 +2294,6 @@ fn test_check_fall_block_there_is_start_block_move() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2330,7 +2305,6 @@ fn test_check_fall_block_there_is_start_block_move() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2343,7 +2317,6 @@ fn test_check_fall_block_there_is_start_block_move() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2360,12 +2333,11 @@ fn test_check_fall_block_there_is_start_block_move() {
 fn test_check_fall_block_there_is_between_block_move() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -5.0, 0.0),
                 ..Default::default()
@@ -2377,7 +2349,6 @@ fn test_check_fall_block_there_is_between_block_move() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 - BLOCK_SIZE + 1.0, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2389,7 +2360,6 @@ fn test_check_fall_block_there_is_between_block_move() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 - 1.0, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2402,7 +2372,6 @@ fn test_check_fall_block_there_is_between_block_move() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0 + BLOCK_SIZE, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2419,12 +2388,11 @@ fn test_check_fall_block_there_is_between_block_move() {
 fn test_check_fall_block_bottom_block_not_fall() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(check_fall_block.system());
+    update_stage.add_system(check_fall_block);
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * -6.0, 0.0),
                 ..Default::default()
@@ -2441,13 +2409,12 @@ fn test_check_fall_block_bottom_block_not_fall() {
 fn test_fall_upward() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(fall_upward.system());
+    update_stage.add_system(fall_upward);
 
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -2459,7 +2426,6 @@ fn test_fall_upward() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE, 0.0),
                 ..Default::default()
@@ -2476,13 +2442,12 @@ fn test_fall_upward() {
 fn test_fall_upward_divide() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(fall_upward.system());
+    update_stage.add_system(fall_upward);
 
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -2494,7 +2459,6 @@ fn test_fall_upward_divide() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE, 0.0),
                 ..Default::default()
@@ -2506,7 +2470,6 @@ fn test_fall_upward_divide() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * 3.0, 0.0),
                 ..Default::default()
@@ -2524,7 +2487,7 @@ fn test_fall_upward_divide() {
 fn test_floating_to_fall() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(floating_to_fall.system());
+    update_stage.add_system(floating_to_fall);
 
     let time = Time::default();
     world.insert_resource(time);
@@ -2541,12 +2504,11 @@ fn test_floating_to_fall() {
 fn test_stop_fall_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(stop_fall_block.system());
+    update_stage.add_system(stop_fall_block);
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 99.0, 0.0),
                 ..Default::default()
@@ -2558,7 +2520,6 @@ fn test_stop_fall_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 50.0, 0.0),
                 ..Default::default()
@@ -2582,12 +2543,11 @@ fn test_stop_fall_block() {
 fn test_fixedprepare_to_fixed() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(fixedprepare_to_fixed.system());
+    update_stage.add_system(fixedprepare_to_fixed);
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -2599,7 +2559,6 @@ fn test_fixedprepare_to_fixed() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE, 0.0),
                 ..Default::default()
@@ -2611,7 +2570,6 @@ fn test_fixedprepare_to_fixed() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * 3.0, 0.0),
                 ..Default::default()
@@ -2632,12 +2590,14 @@ fn test_fixedprepare_to_fixed() {
 fn test_auto_liftup() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(auto_liftup.system());
-    let app_state = State::new(AppState::InGame);
-    world.insert_resource(app_state);
+    update_stage.add_system(auto_liftup);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        ..Default::default()
+    });
     world
         .spawn()
         .insert(CountTimer(Timer::from_seconds(0.0, false)));
@@ -2646,7 +2606,6 @@ fn test_auto_liftup() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -2666,12 +2625,14 @@ fn test_auto_liftup() {
 fn test_auto_liftup_stop_with_timer() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(auto_liftup.system());
-    let app_state = State::new(AppState::InGame);
-    world.insert_resource(app_state);
+    update_stage.add_system(auto_liftup);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        ..Default::default()
+    });
     world
         .spawn()
         .insert(CountTimer(Timer::from_seconds(1.0, false)));
@@ -2680,7 +2641,6 @@ fn test_auto_liftup_stop_with_timer() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -2700,12 +2660,14 @@ fn test_auto_liftup_stop_with_timer() {
 fn test_auto_liftup_stop_with_fall_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(auto_liftup.system());
-    let app_state = State::new(AppState::InGame);
-    world.insert_resource(app_state);
+    update_stage.add_system(auto_liftup);
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        ..Default::default()
+    });
     world
         .spawn()
         .insert(CountTimer(Timer::from_seconds(0.0, false)));
@@ -2714,7 +2676,6 @@ fn test_auto_liftup_stop_with_fall_block() {
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(BLOCK_SIZE / 2.0, 0.0, 0.0),
                 ..Default::default()
@@ -2729,38 +2690,64 @@ fn test_auto_liftup_stop_with_fall_block() {
     assert_eq!(world.get::<Transform>(block).unwrap().translation.y, 0.0);
 }
 
-#[ignore = "how to change state?"]
 #[test]
-fn test_auto_liftup_gameover() {
+fn test_manual_liftup() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(auto_liftup.system());
+    update_stage.add_system(manual_liftup);
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        origin: 10.0,
+    });
+    world.insert_resource(LiftAction {
+        lift: true,
+        ..Default::default()
+    });
+    let count_timer = world
+        .spawn()
+        .insert(CountTimer(Timer::from_seconds(1.0, false)))
+        .id();
+
+    update_stage.run(&mut world);
+    assert_eq!(world.get_resource::<GameSpeed>().unwrap().current, 100.0);
+    assert_eq!(
+        world.get::<CountTimer>(count_timer).unwrap().0.duration(),
+        Duration::from_secs_f32(0.0)
+    );
+}
+
+#[ignore = "how to change state?"]
+#[test]
+fn test_check_game_over() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(check_game_over);
     let app_state = State::new(AppState::InGame);
     world.insert_resource(app_state);
-    let mut time = Time::default();
-    time.update();
-    world.insert_resource(time);
-    world
+    let count_timer = world
         .spawn()
-        .insert(CountTimer(Timer::from_seconds(0.0, false)));
+        .insert(CountTimer(Timer::from_seconds(0.0, false)))
+        .id();
 
     world
         .spawn()
-        .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
-                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * 5.0 + 0.1, 0.0),
+                translation: Vec3::new(BLOCK_SIZE / 2.0, BLOCK_SIZE * 5.1, 0.0),
                 ..Default::default()
             },
             ..Default::default()
         })
-        .insert(Fixed);
+        .insert(Block);
     assert_eq!(
         world.get_resource::<State<AppState>>().unwrap().current(),
         &AppState::InGame
     );
-    world.get_resource_mut::<Time>().unwrap().update();
+    world
+        .get_mut::<CountTimer>(count_timer)
+        .unwrap()
+        .0
+        .tick(Duration::from_secs_f32(1.0));
     update_stage.run(&mut world);
 
     assert_eq!(
@@ -2773,12 +2760,11 @@ fn test_auto_liftup_gameover() {
 fn test_spawning_to_fixed() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(spawning_to_fixed.system());
+    update_stage.add_system(spawning_to_fixed);
     world
         .spawn()
         .insert(Block)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(0.0, BLOCK_SIZE * -5.9, 0.0),
                 ..Default::default()
@@ -2796,12 +2782,11 @@ fn test_spawning_to_fixed() {
 fn test_bottom_down() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(bottom_down.system());
+    update_stage.add_system(bottom_down);
     let bottom = world
         .spawn()
         .insert(Bottom)
         .insert_bundle(SpriteBundle {
-            sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 6.0, BLOCK_SIZE)),
             transform: Transform {
                 translation: Vec3::new(0.0, -300.0, 0.0),
                 ..Default::default()
@@ -2809,6 +2794,13 @@ fn test_bottom_down() {
             ..Default::default()
         })
         .id();
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        ..Default::default()
+    });
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
     update_stage.run(&mut world);
     assert_eq!(
         world.get::<Transform>(bottom).unwrap().translation.y,
@@ -2820,26 +2812,43 @@ fn test_bottom_down() {
 fn test_generate_spawning_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(generate_spawning_block.system());
+    update_stage.add_system(generate_spawning_block);
     world.insert_resource(BlockMaterials {
-        red_material: Handle::<ColorMaterial>::default(),
-        green_material: Handle::<ColorMaterial>::default(),
-        blue_material: Handle::<ColorMaterial>::default(),
-        yellow_material: Handle::<ColorMaterial>::default(),
-        purple_material: Handle::<ColorMaterial>::default(),
-        indigo_material: Handle::<ColorMaterial>::default(),
+        red_material: Handle::<Image>::default(),
+        green_material: Handle::<Image>::default(),
+        blue_material: Handle::<Image>::default(),
+        yellow_material: Handle::<Image>::default(),
+        purple_material: Handle::<Image>::default(),
+        indigo_material: Handle::<Image>::default(),
     });
-    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+    world.insert_resource(GameSpeed {
+        current: 10.0,
         ..Default::default()
     });
-    world.spawn().insert(Bottom).insert_bundle(SpriteBundle {
-        sprite: Sprite::new(Vec2::new(BLOCK_SIZE * 6.0, BLOCK_SIZE)),
-        transform: Transform {
-            translation: Vec3::new(0.0, -300.0, 0.0),
+    world.spawn().insert(Board).insert_bundle(SpriteBundle {
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(BLOCK_SIZE * 6.0, BLOCK_SIZE * 12.0)),
             ..Default::default()
         },
         ..Default::default()
     });
+
+    for i in 0..6 {
+        world
+            .spawn()
+            .insert(Block)
+            .insert_bundle(SpriteBundle {
+                transform: Transform {
+                    translation: Vec3::new(BLOCK_SIZE * i as f32, BLOCK_SIZE * -6.0, 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(Spawning);
+    }
     update_stage.run(&mut world);
-    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 6);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 12);
 }

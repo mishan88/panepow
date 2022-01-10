@@ -4,9 +4,9 @@ use bevy::prelude::*;
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
-    fn build(&self, app: &mut AppBuilder) {
-        app.add_system_set(SystemSet::on_enter(AppState::Menu).with_system(setup_menu.system()))
-            .add_system_set(SystemSet::on_update(AppState::Menu).with_system(go_to_game.system()));
+    fn build(&self, app: &mut App) {
+        app.add_system_set(SystemSet::on_enter(AppState::Menu).with_system(setup_menu))
+            .add_system_set(SystemSet::on_update(AppState::Menu).with_system(go_to_game));
     }
 }
 
