@@ -906,31 +906,36 @@ fn spawning_to_fixed(
     }
 }
 
-fn bottom_down(mut bottom: Query<&mut Transform, With<Bottom>>, mut game_speed: ResMut<GameSpeed>) {
+fn bottom_down(
+    mut bottom: Query<&mut Transform, With<Bottom>>,
+    mut game_speed: ResMut<GameSpeed>,
+    time: Res<Time>,
+) {
     for mut transform in bottom.iter_mut() {
         if transform.translation.y >= BLOCK_SIZE * -6.0 {
-            transform.translation.y = BLOCK_SIZE * -7.0;
+            transform.translation.y = BLOCK_SIZE * -7.0 + time.delta_seconds() * game_speed.current;
             game_speed.current = game_speed.origin;
         }
     }
 }
 
-// FIXME: spawning block with no gap.
 fn generate_spawning_block(
     mut commands: Commands,
+    game_speed: Res<GameSpeed>,
+    time: Res<Time>,
     block_materials: Res<BlockMaterials>,
     board: Query<(Entity, &Transform, &Sprite), With<Board>>,
-    bottom: Query<&Transform, With<Bottom>>,
+    spawning_block: Query<&Transform, (With<Block>, With<Spawning>)>,
 ) {
     for (board_entity, board_transform, board_sprite) in board.iter() {
-        for transform in bottom.iter() {
-            if transform.translation.y >= BLOCK_SIZE * -6.0 {
+        if spawning_block.iter().count() == 6 {
+            if let Some(bottom_y) = spawning_block
+                .iter()
+                .min_by(|tr_a, tr_b| tr_a.translation.y.partial_cmp(&tr_b.translation.y).unwrap())
+            {
                 let relative_x = board_transform.translation.x
                     - board_sprite.custom_size.unwrap().x / 2.0
                     + BLOCK_SIZE / 2.0;
-                let bottom_y = board_transform.translation.y
-                    - board_sprite.custom_size.unwrap().y / 2.0
-                    - BLOCK_SIZE / 2.0;
                 let mut rng = rand::thread_rng();
                 let mut block_colors = vec![
                     (BlockColor::Red, block_materials.red_material.clone()),
@@ -950,7 +955,8 @@ fn generate_spawning_block(
                             transform: Transform {
                                 translation: Vec3::new(
                                     relative_x + BLOCK_SIZE * column_idx as f32,
-                                    bottom_y - BLOCK_SIZE as f32,
+                                    bottom_y.translation.y - BLOCK_SIZE
+                                        + time.delta_seconds() * game_speed.current,
                                     0.0,
                                 ),
                                 ..Default::default()
@@ -2792,6 +2798,9 @@ fn test_bottom_down() {
         current: 10.0,
         ..Default::default()
     });
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
     update_stage.run(&mut world);
     assert_eq!(
         world.get::<Transform>(bottom).unwrap().translation.y,
@@ -2812,6 +2821,13 @@ fn test_generate_spawning_block() {
         purple_material: Handle::<Image>::default(),
         indigo_material: Handle::<Image>::default(),
     });
+    let mut time = Time::default();
+    time.update();
+    world.insert_resource(time);
+    world.insert_resource(GameSpeed {
+        current: 10.0,
+        ..Default::default()
+    });
     world.spawn().insert(Board).insert_bundle(SpriteBundle {
         sprite: Sprite {
             custom_size: Some(Vec2::new(BLOCK_SIZE * 6.0, BLOCK_SIZE * 12.0)),
@@ -2819,17 +2835,20 @@ fn test_generate_spawning_block() {
         },
         ..Default::default()
     });
-    world.spawn().insert(Bottom).insert_bundle(SpriteBundle {
-        transform: Transform {
-            translation: Vec3::new(0.0, -300.0, 0.0),
-            ..Default::default()
-        },
-        sprite: Sprite {
-            custom_size: Some(Vec2::new(BLOCK_SIZE * 6.0, BLOCK_SIZE)),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
+
+    for i in 0..6 {
+        world
+            .spawn()
+            .insert(Block)
+            .insert_bundle(SpriteBundle {
+                transform: Transform {
+                    translation: Vec3::new(BLOCK_SIZE * i as f32, BLOCK_SIZE * -6.0, 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .insert(Spawning);
+    }
     update_stage.run(&mut world);
-    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 6);
+    assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 12);
 }
