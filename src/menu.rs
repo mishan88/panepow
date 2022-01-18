@@ -24,7 +24,8 @@ impl Plugin for MenuPlugin {
                     .with_system(default_keyboard_input)
                     .with_system(button_system)
                     .with_system(visible_battle_mode_node)
-                    .with_system(invisible_battle_mode_node),
+                    .with_system(invisible_battle_mode_node)
+                    .with_system(quit_game),
             )
             .add_system_set(SystemSet::on_exit(AppState::Menu).with_system(cleanup_menu));
     }
@@ -49,6 +50,8 @@ impl Default for ButtonColors {
         }
     }
 }
+#[derive(Component)]
+struct RootButton;
 
 #[derive(Component)]
 struct PlayerModeNode;
@@ -81,6 +84,7 @@ fn setup_menu(
             color: Color::NONE.into(),
             ..Default::default()
         }))
+        .insert(RootButton)
         .id();
     let ui_root = commands
         .spawn_bundle(NodeBundle {
@@ -262,24 +266,19 @@ fn visible_battle_mode_node(
     mut battle_mode_button_text: Query<&mut Visibility, With<Text>>,
 ) {
     for event in events.iter() {
-        match event {
-            NavEvent::FocusChanged { from, to } => {
-                if let Ok(_player_mode_button) = from_player_mode_buttons.get(*from.first()) {
-                    if let Ok(_battle_mode_button) = to_battle_mode_button.get(*to.first()) {
-                        for (mut button_visibility, children) in battle_mode_buttons.iter_mut() {
-                            button_visibility.is_visible = true;
-                            for &child in children.iter() {
-                                if let Ok(mut text_visibility) =
-                                    battle_mode_button_text.get_mut(child)
-                                {
-                                    text_visibility.is_visible = true;
-                                }
-                            }
+        if let NavEvent::FocusChanged { from, to } = event {
+            if from_player_mode_buttons.get(*from.first()).is_ok()
+                && to_battle_mode_button.get(*to.first()).is_ok()
+            {
+                for (mut button_visibility, children) in battle_mode_buttons.iter_mut() {
+                    button_visibility.is_visible = true;
+                    for &child in children.iter() {
+                        if let Ok(mut text_visibility) = battle_mode_button_text.get_mut(child) {
+                            text_visibility.is_visible = true;
                         }
                     }
                 }
             }
-            _ => {}
         }
     }
 }
@@ -295,24 +294,36 @@ fn invisible_battle_mode_node(
     mut battle_mode_button_text: Query<&mut Visibility, With<Text>>,
 ) {
     for event in events.iter() {
-        match event {
-            NavEvent::FocusChanged { from, to } => {
-                if let Ok(_) = from_battle_mode_button.get(*from.first()) {
-                    if let Ok(_) = to_player_mode_button.get(*to.first()) {
-                        for (mut button_visibility, children) in battle_mode_buttons.iter_mut() {
-                            button_visibility.is_visible = false;
-                            for &child in children.iter() {
-                                if let Ok(mut text_visibility) =
-                                    battle_mode_button_text.get_mut(child)
-                                {
-                                    text_visibility.is_visible = false;
-                                }
-                            }
+        if let NavEvent::FocusChanged { from, to } = event {
+            if from_battle_mode_button.get(*from.first()).is_ok()
+                && to_player_mode_button.get(*to.first()).is_ok()
+            {
+                for (mut button_visibility, children) in battle_mode_buttons.iter_mut() {
+                    button_visibility.is_visible = false;
+                    for &child in children.iter() {
+                        if let Ok(mut text_visibility) = battle_mode_button_text.get_mut(child) {
+                            text_visibility.is_visible = false;
                         }
                     }
                 }
             }
-            _ => {}
+        }
+    }
+}
+
+fn quit_game(
+    mut events: EventReader<NavEvent>,
+    from_player_mode_button: Query<Entity, With<PlayerModeButton>>,
+    to_root_button: Query<Entity, With<RootButton>>,
+    mut exit: EventWriter<AppExit>,
+) {
+    for event in events.iter() {
+        if let NavEvent::FocusChanged { from, to } = event {
+            if from_player_mode_button.get(*from.first()).is_ok()
+                && to_root_button.get(*to.first()).is_ok()
+            {
+                exit.send(AppExit);
+            }
         }
     }
 }
@@ -323,8 +334,8 @@ fn go_to_game(
     mut exit: EventWriter<AppExit>,
 ) {
     for event in events.iter() {
-        match event {
-            NavEvent::NoChanges { from: _, request } => match request {
+        if let NavEvent::NoChanges { from: _, request } = event {
+            match request {
                 NavRequest::Action => {
                     state.set(AppState::InGame).unwrap();
                 }
@@ -332,8 +343,7 @@ fn go_to_game(
                     exit.send(AppExit);
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
     }
 }

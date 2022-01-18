@@ -383,8 +383,6 @@ fn move_cursor(actions: Res<MoveActions>, mut cursor: Query<&mut Transform, With
         {
             transform.translation.y += movement.y;
         }
-    } else {
-        return;
     }
 }
 
