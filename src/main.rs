@@ -5,7 +5,6 @@
 use bevy_webgl2;
 
 use bevy::prelude::{App, DefaultPlugins, WindowDescriptor};
-use bevy_ui_navigation::NavigationPlugin;
 use panepow::GamePlugin;
 
 fn main() {
@@ -17,7 +16,6 @@ fn main() {
         ..Default::default()
     })
     .add_plugins(DefaultPlugins)
-    .add_plugin(NavigationPlugin)
     .add_plugin(GamePlugin);
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
