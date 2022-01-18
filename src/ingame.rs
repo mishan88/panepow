@@ -3,6 +3,7 @@ use std::{collections::VecDeque, time::Duration};
 use bevy::{
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
+    utils::HashMap,
 };
 use bevy_easings::*;
 
@@ -11,7 +12,8 @@ use rand::prelude::*;
 use crate::{
     actions::{LiftAction, MoveActions, SwapAction},
     loading::{
-        BlockMaterials, BoardBottomCoverMaterials, BoardMaterials, BottomMaterials, CursorMaterials,
+        BlockMaterials, BoardBottomCoverMaterials, BoardMaterials, BottomMaterials,
+        CursorMaterials, FontAssets,
     },
     AppState,
 };
@@ -21,13 +23,16 @@ pub struct IngamePlugin;
 impl Plugin for IngamePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameSpeed>()
+            .init_resource::<Score>()
             .add_plugin(bevy_easings::EasingsPlugin)
             .add_system_set(
                 SystemSet::on_enter(AppState::InGame)
                     .with_system(setup_board)
                     .with_system(setup_board_bottom_cover)
                     .with_system(setup_chaincounter)
-                    .with_system(setup_gamespeed),
+                    .with_system(setup_gamespeed)
+                    .with_system(setup_score)
+                    .with_system(setup_score_board),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
@@ -100,7 +105,8 @@ impl Plugin for IngamePlugin {
                             .label("manual_liftup")
                             .after("check_game_over"),
                     )
-                    .with_system(auto_liftup.label("auto_liftup").after("manual_liftup")),
+                    .with_system(auto_liftup.label("auto_liftup").after("manual_liftup"))
+                    .with_system(score_text_update),
             );
     }
 }
@@ -180,6 +186,16 @@ struct GameSpeed {
     current: f32,
     origin: f32,
 }
+
+#[derive(Default)]
+struct Score {
+    score: usize,
+    chain: HashMap<usize, usize>,
+    combo: HashMap<usize, usize>,
+}
+
+#[derive(Component)]
+struct ScoreText;
 
 // TODO: divide function
 fn setup_board(
@@ -367,6 +383,44 @@ fn setup_chaincounter(mut commands: Commands) {
 fn setup_gamespeed(mut game_speed: ResMut<GameSpeed>) {
     game_speed.current = 10.0;
     game_speed.origin = 10.0;
+}
+
+fn setup_score(mut score: ResMut<Score>) {
+    score.score = 0;
+    score.chain = HashMap::default();
+    score.combo = HashMap::default();
+}
+
+fn setup_score_board(mut commands: Commands, font_assets: Res<FontAssets>, score: Res<Score>) {
+    commands
+        .spawn_bundle(TextBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    bottom: Val::Px(5.0),
+                    right: Val::Px(15.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            text: Text::with_section(
+                score.score.to_string(),
+                TextStyle {
+                    font: font_assets.font.clone(),
+                    font_size: 50.0,
+                    color: Color::WHITE,
+                },
+                Default::default(),
+            ),
+            ..Default::default()
+        })
+        .insert(ScoreText);
+}
+
+fn score_text_update(score: Res<Score>, mut score_texts: Query<&mut Text, With<ScoreText>>) {
+    for mut score_text in score_texts.iter_mut() {
+        score_text.sections[0].value = score.score.to_string();
+    }
 }
 
 fn move_cursor(actions: Res<MoveActions>, mut cursor: Query<&mut Transform, With<Cursor>>) {
@@ -1004,6 +1058,32 @@ fn test_setup_board() {
     assert!(world.query::<&Block>().iter(&world).len() > 5);
     assert_eq!(world.query::<(&Block, &Spawning)>().iter(&world).len(), 12);
     assert_eq!(world.query::<&Bottom>().iter(&world).len(), 1);
+}
+
+#[test]
+fn test_score_text_update() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(score_text_update);
+
+    world.insert_resource(Score {
+        score: 0,
+        ..Default::default()
+    });
+    world
+        .spawn()
+        .insert_bundle(TextBundle {
+            text: Text::with_section(0.to_string(), Default::default(), Default::default()),
+            ..Default::default()
+        })
+        .insert(ScoreText);
+
+    world.get_resource_mut::<Score>().unwrap().score = 10;
+    update_stage.run(&mut world);
+    assert_eq!(
+        world.query::<&Text>().iter(&world).next().unwrap().sections[0].value,
+        10.to_string()
+    );
 }
 
 #[test]
