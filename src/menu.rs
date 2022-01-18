@@ -57,13 +57,21 @@ struct RootButton;
 struct PlayerModeNode;
 
 #[derive(Component)]
-struct PlayerModeButton;
+enum PlayerModeButton {
+    OnePlayer,
+    TwoPlayer,
+}
 
 #[derive(Component)]
 struct BattleModeNode;
 
 #[derive(Component)]
-struct BattleModeButton;
+enum OnePlayerBattleModeButton {
+    Endless,
+    ScoreAttack,
+    Puzzle,
+    VsCom,
+}
 
 #[derive(Component)]
 struct DifficultyButton;
@@ -105,14 +113,14 @@ fn setup_menu(
     // setup player mode node
     let one_player_mode = commands
         .spawn_bundle(focusable_button(true))
-        .insert(PlayerModeButton)
+        .insert(PlayerModeButton::OnePlayer)
         .with_children(|cmd| {
             cmd.spawn_bundle(text(&font_assets, "1 Player", true));
         })
         .id();
     let two_player_mode = commands
         .spawn_bundle(focusable_button(true))
-        .insert(PlayerModeButton)
+        .insert(PlayerModeButton::TwoPlayer)
         .with_children(|cmd| {
             cmd.spawn_bundle(text(&font_assets, "2 Players", true));
         })
@@ -138,28 +146,28 @@ fn setup_menu(
     // setup one plyaer mode node
     let one_player_endless = commands
         .spawn_bundle(focusable_button(false))
-        .insert(BattleModeButton)
+        .insert(OnePlayerBattleModeButton::Endless)
         .with_children(|cmd| {
             cmd.spawn_bundle(text(&font_assets, "endless", false));
         })
         .id();
     let one_player_score_attack = commands
         .spawn_bundle(focusable_button(false))
-        .insert(BattleModeButton)
+        .insert(OnePlayerBattleModeButton::ScoreAttack)
         .with_children(|cmd| {
             cmd.spawn_bundle(text(&font_assets, "score attack", false));
         })
         .id();
     let one_player_puzzle = commands
         .spawn_bundle(focusable_button(false))
-        .insert(BattleModeButton)
+        .insert(OnePlayerBattleModeButton::Puzzle)
         .with_children(|cmd| {
             cmd.spawn_bundle(text(&font_assets, "puzzle", false));
         })
         .id();
     let one_player_vs_com = commands
         .spawn_bundle(focusable_button(false))
-        .insert(BattleModeButton)
+        .insert(OnePlayerBattleModeButton::VsCom)
         .with_children(|cmd| {
             cmd.spawn_bundle(text(&font_assets, "vs com", false));
         })
@@ -257,11 +265,11 @@ fn button_system(
 
 fn visible_battle_mode_node(
     mut events: EventReader<NavEvent>,
-    to_battle_mode_button: Query<Entity, With<BattleModeButton>>,
+    to_battle_mode_button: Query<Entity, With<OnePlayerBattleModeButton>>,
     from_player_mode_buttons: Query<Entity, With<PlayerModeButton>>,
     mut battle_mode_buttons: Query<
         (&mut Visibility, &Children),
-        (With<BattleModeButton>, Without<Text>),
+        (With<OnePlayerBattleModeButton>, Without<Text>),
     >,
     mut battle_mode_button_text: Query<&mut Visibility, With<Text>>,
 ) {
@@ -285,11 +293,11 @@ fn visible_battle_mode_node(
 
 fn invisible_battle_mode_node(
     mut events: EventReader<NavEvent>,
-    from_battle_mode_button: Query<Entity, With<BattleModeButton>>,
+    from_battle_mode_button: Query<Entity, With<OnePlayerBattleModeButton>>,
     to_player_mode_button: Query<Entity, With<PlayerModeButton>>,
     mut battle_mode_buttons: Query<
         (&mut Visibility, &Children),
-        (With<BattleModeButton>, Without<Text>),
+        (With<OnePlayerBattleModeButton>, Without<Text>),
     >,
     mut battle_mode_button_text: Query<&mut Visibility, With<Text>>,
 ) {
