@@ -24,7 +24,6 @@ impl Plugin for IngamePlugin {
             .add_plugin(bevy_easings::EasingsPlugin)
             .add_system_set(
                 SystemSet::on_enter(AppState::InGame)
-                    .with_system(setup_camera)
                     .with_system(setup_board)
                     .with_system(setup_board_bottom_cover)
                     .with_system(setup_chaincounter)
@@ -180,10 +179,6 @@ struct ChainCounter(u32);
 struct GameSpeed {
     current: f32,
     origin: f32,
-}
-
-fn setup_camera(mut commands: Commands) {
-    commands.spawn_bundle(OrthographicCameraBundle::new_2d());
 }
 
 // TODO: divide function
