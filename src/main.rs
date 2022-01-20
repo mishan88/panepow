@@ -11,8 +11,8 @@ fn main() {
     let mut app = App::new();
     app.insert_resource(WindowDescriptor {
         title: String::from("PanelPow"),
-        width: 1920.0,
-        height: 1080.0,
+        width: 1280.0,
+        height: 800.0,
         ..Default::default()
     })
     .add_plugins(DefaultPlugins)
