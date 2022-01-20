@@ -101,6 +101,7 @@ fn setup_menu(
                 position_type: PositionType::Absolute,
                 align_items: AlignItems::FlexEnd,
                 size: Size::new(Val::Percent(50.0), Val::Percent(100.0)),
+                padding: Rect::all(Val::Percent(5.0)),
                 ..Default::default()
             },
             color: Color::NONE.into(),
@@ -177,7 +178,8 @@ fn setup_menu(
             style: Style {
                 flex_direction: FlexDirection::ColumnReverse,
                 position_type: PositionType::Relative,
-                size: Size::new(Val::Percent(20.0), Val::Percent(20.0)),
+                size: Size::new(Val::Percent(30.0), Val::Percent(40.0)),
+                margin: Rect::all(Val::Px(5.0)),
                 ..Default::default()
             },
             visibility: Visibility { is_visible: false },
@@ -219,6 +221,7 @@ fn focusable_button(is_visible: bool) -> FocusableButtonBundle {
     FocusableButtonBundle::from(ButtonBundle {
         style: Style {
             size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+            margin: Rect::all(Val::Px(10.0)),
             ..Default::default()
         },
         color: Color::GREEN.into(),
