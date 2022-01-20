@@ -4,7 +4,7 @@ Panel De Pon Clone by Bevy Engine.
 ## Run
 
 ```
-cargo run --features native
+cargo run
 ```
 
 ## Block Status
@@ -13,10 +13,10 @@ cargo run --features native
 stateDiagram-v2
     [*] --> Spawning: generate_spawning_block
     Spawning --> Fixed: spawning_to_fixed
-    Fixed --> FallPrepare: check_fall_block
-    Fixed --> Floating: fall_upward
+    Fixed --> FloatingPrepare: check_fall_block
+    Fixed --> Floating: floating_upward
     State FallState {
-        FallPrepare --> Floating: fall_upward
+        FloatingPrepare --> Floating: floating_upward
         Floating --> Fall: floating_to_fall
         Fall --> FixedPrepare: stop_fall_block
     }
