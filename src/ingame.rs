@@ -48,11 +48,11 @@ impl Plugin for IngamePlugin {
                     .label("fall_set")
                     .after("move_set")
                     .with_system(check_fall_block.label("check_fall"))
-                    .with_system(fall_upward.label("fall_upward").after("check_fall"))
+                    .with_system(floating_upward.label("floating_upward").after("check_fall"))
                     .with_system(
                         floating_to_fall
                             .label("floating_to_fall")
-                            .after("fall_upward"),
+                            .after("floating_upward"),
                     )
                     .with_system(fall_block.label("fall_block").after("floating_to_fall"))
                     .with_system(stop_fall_block.label("stop_fall_block").after("fall_block"))
@@ -72,7 +72,12 @@ impl Plugin for IngamePlugin {
                             .label("spawning_to_fixed")
                             .after("generate_spawning_block"),
                     )
-                    .with_system(bottom_down.label("bottom_down").after("spawning_to_fixed")),
+                    .with_system(bottom_down.label("bottom_down").after("spawning_to_fixed"))
+                    .with_system(
+                        cursor_position_fix
+                            .label("cursor_position_fix")
+                            .after("bottom_down"),
+                    ),
             )
             .add_system_set(
                 SystemSet::on_update(AppState::InGame)
@@ -150,7 +155,7 @@ struct Fixed;
 #[derive(Debug, Component)]
 struct Matched;
 #[derive(Debug, Component)]
-struct FallPrepare;
+struct FloatingPrepare;
 #[derive(Debug, Component)]
 struct Floating(Timer);
 #[derive(Debug, Component)]
@@ -179,7 +184,7 @@ struct BoardBottomCover;
 struct CountTimer(Timer);
 
 #[derive(Debug, Component)]
-struct ChainCounter(u32);
+struct ChainCounter(usize);
 
 #[derive(Default)]
 struct GameSpeed {
@@ -393,28 +398,37 @@ fn setup_score(mut score: ResMut<Score>) {
 
 fn setup_score_board(mut commands: Commands, font_assets: Res<FontAssets>, score: Res<Score>) {
     commands
-        .spawn_bundle(TextBundle {
+        .spawn_bundle(NodeBundle {
             style: Style {
                 position_type: PositionType::Absolute,
                 position: Rect {
-                    bottom: Val::Px(5.0),
-                    right: Val::Px(15.0),
+                    top: Val::Percent(5.0),
+                    left: Val::Percent(70.0),
                     ..Default::default()
                 },
                 ..Default::default()
             },
-            text: Text::with_section(
-                score.score.to_string(),
-                TextStyle {
-                    font: font_assets.font.clone(),
-                    font_size: 50.0,
-                    color: Color::WHITE,
-                },
-                Default::default(),
-            ),
             ..Default::default()
         })
-        .insert(ScoreText);
+        .with_children(|cmd| {
+            cmd.spawn_bundle(TextBundle {
+                style: Style {
+                    position_type: PositionType::Absolute,
+                    ..Default::default()
+                },
+                text: Text::with_section(
+                    score.score.to_string(),
+                    TextStyle {
+                        font: font_assets.font.clone(),
+                        font_size: 50.0,
+                        color: Color::WHITE,
+                    },
+                    Default::default(),
+                ),
+                ..Default::default()
+            })
+            .insert(ScoreText);
+        });
 }
 
 fn score_text_update(score: Res<Score>, mut score_texts: Query<&mut Text, With<ScoreText>>) {
@@ -634,6 +648,7 @@ fn match_block(
 
 fn prepare_despawn_block(
     mut commands: Commands,
+    mut score: ResMut<Score>,
     match_block: Query<(Entity, Option<&Chain>), (With<Block>, With<Matched>)>,
     mut chain_counter: Query<&mut ChainCounter>,
 ) {
@@ -646,9 +661,16 @@ fn prepare_despawn_block(
     {
         let mut cc = chain_counter.single_mut();
         cc.0 += 1;
+        score.score += calculate_chain_bonus_score(cc.0);
     }
 
     let combo = match_block.iter().count();
+    score.score += calculate_combo_bonus_score(combo);
+    score
+        .combo
+        .entry(combo)
+        .and_modify(|x| *x += 1)
+        .or_insert(1);
     for (entity, _chain) in match_block.iter() {
         commands
             .entity(entity)
@@ -675,11 +697,13 @@ fn remove_chain(
 }
 
 fn reset_chain_counter(
+    mut score: ResMut<Score>,
     chain_block: Query<&Chain, (With<Block>, With<Chain>)>,
     mut chain_counter: Query<&mut ChainCounter>,
 ) {
     if chain_block.iter().next().is_none() {
         let mut cc = chain_counter.single_mut();
+        score.chain.entry(cc.0).and_modify(|x| *x += 1).or_insert(1);
         cc.0 = 1;
     }
 }
@@ -687,6 +711,7 @@ fn reset_chain_counter(
 fn despawn_block(
     mut commands: Commands,
     time: Res<Time>,
+    mut score: ResMut<Score>,
     mut despawning_block: Query<
         (Entity, &mut Despawining, &Transform),
         (With<Block>, With<Despawining>),
@@ -699,6 +724,7 @@ fn despawn_block(
             .tick(Duration::from_secs_f32(time.delta_seconds()));
         if despawning.0.just_finished() {
             commands.entity(despawning_entity).despawn();
+            score.score += 100;
             let mut chain_candidates = Vec::new();
             for (other_entity, other_transform) in other_block.iter() {
                 if despawning_transform.translation.y < other_transform.translation.y
@@ -752,23 +778,23 @@ fn check_fall_block(
                 commands
                     .entity(entity)
                     .remove::<Fixed>()
-                    .insert(FallPrepare);
+                    .insert(FloatingPrepare);
             }
         }
     }
 }
 
-fn fall_upward(
+fn floating_upward(
     mut commands: Commands,
-    mut fallprepare_block: Query<(Entity, &Transform), (With<Block>, With<FallPrepare>)>,
+    mut floating_prepare_block: Query<(Entity, &Transform), (With<Block>, With<FloatingPrepare>)>,
     mut fixed_block: Query<(Entity, &Transform), (With<Block>, With<Fixed>)>,
 ) {
-    for (fallprepare_entity, fallprepare_transform) in fallprepare_block.iter_mut() {
-        let mut fall_block_candidates = vec![(fallprepare_entity, fallprepare_transform)];
+    for (floating_prepare_entity, floating_prepare_transform) in floating_prepare_block.iter_mut() {
+        let mut fall_block_candidates = vec![(floating_prepare_entity, floating_prepare_transform)];
 
         for (fixed_entity, fixed_transform) in fixed_block.iter_mut() {
-            if fallprepare_transform.translation.y < fixed_transform.translation.y
-                && (fallprepare_transform.translation.x - fixed_transform.translation.x).abs()
+            if floating_prepare_transform.translation.y < fixed_transform.translation.y
+                && (floating_prepare_transform.translation.x - fixed_transform.translation.x).abs()
                     < BLOCK_SIZE / 2.0
             {
                 fall_block_candidates.push((fixed_entity, fixed_transform));
@@ -785,7 +811,7 @@ fn fall_upward(
         while let Some((en, tr)) = iter.next() {
             commands
                 .entity(*en)
-                .remove::<FallPrepare>()
+                .remove::<FloatingPrepare>()
                 .remove::<Fixed>()
                 .insert(Floating(Timer::from_seconds(0.02, false)));
             if let Some((_en, next_tr)) = iter.peek() {
@@ -954,6 +980,7 @@ fn spawning_to_fixed(
 }
 
 fn bottom_down(
+    mut score: ResMut<Score>,
     mut bottom: Query<&mut Transform, With<Bottom>>,
     mut game_speed: ResMut<GameSpeed>,
     time: Res<Time>,
@@ -961,7 +988,18 @@ fn bottom_down(
     for mut transform in bottom.iter_mut() {
         if transform.translation.y >= BLOCK_SIZE * -6.0 {
             transform.translation.y = BLOCK_SIZE * -7.0 + time.delta_seconds() * game_speed.current;
-            game_speed.current = game_speed.origin;
+            if game_speed.current != game_speed.origin {
+                game_speed.current = game_speed.origin;
+                score.score += 1;
+            }
+        }
+    }
+}
+
+fn cursor_position_fix(mut cursor: Query<&mut Transform, With<Cursor>>) {
+    for mut transform in cursor.iter_mut() {
+        if transform.translation.y > BLOCK_SIZE * 6.0 {
+            transform.translation.y -= BLOCK_SIZE;
         }
     }
 }
@@ -1025,6 +1063,30 @@ fn generate_spawning_block(
                 }
             }
         }
+    }
+}
+
+fn calculate_chain_bonus_score(number_of_chain: usize) -> usize {
+    match number_of_chain {
+        0..=1 => 0,
+        2 => 50,
+        3 => 80,
+        4 => 150,
+        5 => 300,
+        6 => 400,
+        _ => (number_of_chain - 7) * 200 + 500,
+    }
+}
+
+fn calculate_combo_bonus_score(number_of_combo: usize) -> usize {
+    match number_of_combo {
+        0..=2 => 0,
+        3..=5 => (number_of_combo - 3) * 30,
+        6..=10 => (number_of_combo - 6) * 40 + 150,
+        11..=14 => (number_of_combo - 11) * 50 + 400,
+        15..=31 => (0..(number_of_combo - 15)).fold(60, |acc, x| acc + x * 30) + 700,
+        32..=72 => (0..(number_of_combo - 32)).fold(570, |acc, x| acc + x * 30) + 15000,
+        _ => 0,
     }
 }
 
@@ -2040,6 +2102,8 @@ fn test_prepare_despawn_block() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(prepare_despawn_block);
+    let score = Score::default();
+    world.insert_resource(score);
 
     world.spawn().insert(Block).insert(Matched);
     let chain_counter = world.spawn().insert(ChainCounter(1)).id();
@@ -2057,6 +2121,8 @@ fn test_prepare_despawn_block_chain() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(prepare_despawn_block);
+    let score = Score::default();
+    world.insert_resource(score);
 
     world
         .spawn()
@@ -2121,6 +2187,8 @@ fn test_reset_chain_counter() {
     let mut update_stage = SystemStage::parallel();
     update_stage.add_system(reset_chain_counter);
     let chain_counter = world.spawn().insert(ChainCounter(2)).id();
+    let score = Score::default();
+    world.insert_resource(score);
     update_stage.run(&mut world);
     assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 1);
 }
@@ -2135,6 +2203,8 @@ fn test_reset_chain_counter_not_reset() {
         .spawn()
         .insert(Block)
         .insert(Chain(Timer::from_seconds(0.04, false)));
+    let score = Score::default();
+    world.insert_resource(score);
     update_stage.run(&mut world);
     assert_eq!(world.get::<ChainCounter>(chain_counter).unwrap().0, 2);
 }
@@ -2146,6 +2216,8 @@ fn test_despawn_block() {
     update_stage.add_system(despawn_block);
     let time = Time::default();
     world.insert_resource(time);
+    let score = Score::default();
+    world.insert_resource(score);
 
     let block = world
         .spawn()
@@ -2171,6 +2243,8 @@ fn test_despawn_block_add_chain() {
     update_stage.add_system(despawn_block);
     let time = Time::default();
     world.insert_resource(time);
+    let score = Score::default();
+    world.insert_resource(score);
 
     world
         .spawn()
@@ -2241,7 +2315,10 @@ fn test_check_fall_block() {
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 1);
     update_stage.run(&mut world);
     assert_eq!(
-        world.query::<(&Block, &FallPrepare)>().iter(&world).len(),
+        world
+            .query::<(&Block, &FloatingPrepare)>()
+            .iter(&world)
+            .len(),
         1
     );
 }
@@ -2287,7 +2364,10 @@ fn test_check_fall_block_there_isnot_between_block() {
     assert_eq!(world.query::<(&Block, &Fixed)>().iter(&world).len(), 3);
     update_stage.run(&mut world);
     assert_eq!(
-        world.query::<(&Block, &FallPrepare)>().iter(&world).len(),
+        world
+            .query::<(&Block, &FloatingPrepare)>()
+            .iter(&world)
+            .len(),
         1
     );
 }
@@ -2479,10 +2559,10 @@ fn test_check_fall_block_bottom_block_not_fall() {
 }
 
 #[test]
-fn test_fall_upward() {
+fn test_floating_upward() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(fall_upward);
+    update_stage.add_system(floating_upward);
 
     world
         .spawn()
@@ -2494,7 +2574,7 @@ fn test_fall_upward() {
             },
             ..Default::default()
         })
-        .insert(FallPrepare);
+        .insert(FloatingPrepare);
     world
         .spawn()
         .insert(Block)
@@ -2512,10 +2592,10 @@ fn test_fall_upward() {
 }
 
 #[test]
-fn test_fall_upward_divide() {
+fn test_floating_upward_divide() {
     let mut world = World::default();
     let mut update_stage = SystemStage::parallel();
-    update_stage.add_system(fall_upward);
+    update_stage.add_system(floating_upward);
 
     world
         .spawn()
@@ -2527,7 +2607,7 @@ fn test_fall_upward_divide() {
             },
             ..Default::default()
         })
-        .insert(FallPrepare);
+        .insert(FloatingPrepare);
     world
         .spawn()
         .insert(Block)
@@ -2874,11 +2954,33 @@ fn test_bottom_down() {
     let mut time = Time::default();
     time.update();
     world.insert_resource(time);
+    let score = Score::default();
+    world.insert_resource(score);
     update_stage.run(&mut world);
     assert_eq!(
         world.get::<Transform>(bottom).unwrap().translation.y,
         -350.0
     );
+}
+
+#[test]
+fn test_cursor_position_fix() {
+    let mut world = World::default();
+    let mut update_stage = SystemStage::parallel();
+    update_stage.add_system(cursor_position_fix);
+    let cursor = world
+        .spawn()
+        .insert(Cursor)
+        .insert_bundle(SpriteBundle {
+            transform: Transform {
+                translation: Vec3::new(0.0, 301.0, 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .id();
+    update_stage.run(&mut world);
+    assert_eq!(world.get::<Transform>(cursor).unwrap().translation.y, 251.0);
 }
 
 #[test]
